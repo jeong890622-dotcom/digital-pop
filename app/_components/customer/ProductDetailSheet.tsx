@@ -142,17 +142,17 @@ export function ProductDetailSheet({
           </button>
         </div>
 
-        <div className="grid grid-cols-[156px_1fr] gap-4 border-b border-[#E5E5E5] pb-4">
-          <div className="flex h-[156px] w-[156px] items-center justify-center bg-[#F5F5F5]">
+        <div className="grid grid-cols-[172px_1fr] gap-6 border-b border-[#E5E5E5] pb-4">
+          <div className="flex h-[172px] w-[172px] items-center justify-center bg-[#F5F5F5]">
             <Image
               src={safeSelectedImageUrl}
               alt={product.name}
-              width={136}
-              height={136}
-              className="scale-[1.95] object-contain contrast-115 saturate-110"
+              width={142}
+              height={142}
+              className="scale-[1.8] object-contain contrast-115 saturate-110"
             />
           </div>
-          <div>
+          <div className="pl-1">
             <h2 className="mt-1 text-base font-semibold text-[#111111]">
               {product.groupName}
             </h2>
