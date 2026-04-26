@@ -1,0 +1,19 @@
+---
+alwaysApply: true
+---
+---
+description: Coding rules
+alwaysApply: true
+---
+
+기술 스택:
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+
+코딩 원칙:
+- 컴포넌트는 작게 분리
+- mock data로 먼저 구현 후 실제 데이터 연결
+- loading / empty / error 상태 구현
+- 폼 유효성 검사 포함
+- 수정 전 변경 계획을 먼저 제시

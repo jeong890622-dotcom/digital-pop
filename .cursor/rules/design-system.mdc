@@ -1,0 +1,20 @@
+---
+alwaysApply: true
+---
+---
+description: DESKER design system rules
+alwaysApply: true
+---
+
+반드시 docs/design-guide.md를 먼저 참조한다.
+
+디자인 원칙:
+- DESKER 스타일의 미니멀, 정돈, 여백 중심 UI 유지
+- 화이트/라이트그레이 배경 중심
+- 검정/짙은 회색 텍스트 중심
+- 제품 카드에 과한 박스감 금지
+- 그리드는 단정하고 균일하게 유지
+- hover, shadow, border는 약하게 사용
+- 고객용은 상품 이미지 중심
+- 활성 탭은 underline 또는 절제된 강조 방식
+- 과한 radius, gradient, 강한 포인트 컬러 금지

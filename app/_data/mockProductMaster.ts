@@ -1,0 +1,148 @@
+/** 마스터 1행 = 1 SKU (mock) */
+export type ProductMasterRow = {
+  id: string;
+  productGroupCode: string;
+  productGroupName: string;
+  productName: string;
+  productCode: string;
+  colorCode: string;
+  sizeLabel: string;
+  imageUrl: string;
+  /** 소비자가(정가 등). 사용자 화면은 상품 상세에서만 표시 */
+  consumerPrice: number;
+  membershipPrice: number;
+  detailUrl: string;
+};
+
+export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
+  {
+    id: "pm-001",
+    productGroupCode: "PG-DESK-BASIC",
+    productGroupName: "데스커 베이직 데스크",
+    productName: "데스커 베이직 데스크 1400 · 화이트",
+    productCode: "DK-DSK-1400",
+    colorCode: "c-white",
+    sizeLabel: "1400 x 700",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 400000,
+    membershipPrice: 320000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-002",
+    productGroupCode: "PG-DESK-BASIC",
+    productGroupName: "데스커 베이직 데스크",
+    productName: "데스커 베이직 데스크 1400 · 블랙",
+    productCode: "DK-DSK-1400-BK",
+    colorCode: "c-black",
+    sizeLabel: "1400 x 700",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 400000,
+    membershipPrice: 320000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-003",
+    productGroupCode: "PG-DESK-BASIC",
+    productGroupName: "데스커 베이직 데스크",
+    productName: "데스커 베이직 데스크 1600 · 화이트",
+    productCode: "DK-DSK-1600",
+    colorCode: "c-white",
+    sizeLabel: "1600 x 700",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 459000,
+    membershipPrice: 369000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-004",
+    productGroupCode: "PG-DESK-BASIC",
+    productGroupName: "데스커 베이직 데스크",
+    productName: "데스커 베이직 데스크 1600 · 우드",
+    productCode: "DK-DSK-1600-WD",
+    colorCode: "c-wood",
+    sizeLabel: "1600 x 700",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 459000,
+    membershipPrice: 369000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-005",
+    productGroupCode: "PG-CHR-ERGO",
+    productGroupName: "데스커 에르고 체어",
+    productName: "데스커 에르고 체어 · 그레이",
+    productCode: "DK-CHR-A01-GR",
+    colorCode: "c-gray",
+    sizeLabel: "Standard",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 359000,
+    membershipPrice: 289000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-006",
+    productGroupCode: "PG-CHR-ERGO",
+    productGroupName: "데스커 에르고 체어",
+    productName: "데스커 에르고 체어 · 블랙",
+    productCode: "DK-CHR-A01-BK",
+    colorCode: "c-black",
+    sizeLabel: "Standard",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 359000,
+    membershipPrice: 289000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-007",
+    productGroupCode: "PG-CHR-TASK",
+    productGroupName: "데스커 태스크 체어",
+    productName: "데스커 태스크 체어 · 그레이",
+    productCode: "DK-CHR-B01",
+    colorCode: "c-gray",
+    sizeLabel: "Standard",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 329000,
+    membershipPrice: 259000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-008",
+    productGroupCode: "PG-STO-3D",
+    productGroupName: "데스커 3단 서랍장",
+    productName: "데스커 3단 서랍장 400 · 화이트",
+    productCode: "DK-STO-400",
+    colorCode: "c-white",
+    sizeLabel: "400 x 580",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 248000,
+    membershipPrice: 198000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-009",
+    productGroupCode: "PG-STO-3D",
+    productGroupName: "데스커 3단 서랍장",
+    productName: "데스커 3단 서랍장 800 · 화이트",
+    productCode: "DK-STO-800",
+    colorCode: "c-white",
+    sizeLabel: "800 x 580",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 298000,
+    membershipPrice: 238000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+  {
+    id: "pm-010",
+    productGroupCode: "PG-LGT-FLOOR",
+    productGroupName: "데스커 플로어 조명",
+    productName: "데스커 플로어 조명 · 화이트",
+    productCode: "DK-LGT-F01",
+    colorCode: "c-white",
+    sizeLabel: "Standard",
+    imageUrl: "https://chatgpt.com/c/69e9fc91-bf60-83aa-9d89-05903c934bbe",
+    consumerPrice: 189000,
+    membershipPrice: 149000,
+    detailUrl: "https://www.desker.co.kr/product/detail/612",
+  },
+];
