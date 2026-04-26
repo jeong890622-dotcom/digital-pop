@@ -35,6 +35,7 @@ export type StoreCatalog = {
   storeName: string;
   qrZoneId: string;
   displayedProductCodes: string[];
+  displayedSkuKeys: string[];
   qrEntries: QrEntry[];
   zones: Zone[];
   products: Product[];
@@ -285,6 +286,13 @@ export const mockCatalog: StoreCatalog = {
   storeName: "DESKER 강남점",
   qrZoneId: "zone-workstation",
   displayedProductCodes: [...new Set(INITIAL_PRODUCT_MASTER_ROWS.map((row) => row.productCode))],
+  displayedSkuKeys: [
+    ...new Set(
+      INITIAL_PRODUCT_MASTER_ROWS.map(
+        (row) => `${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`,
+      ),
+    ),
+  ],
   qrEntries: [
     {
       id: "qr-workstation-main",
@@ -373,6 +381,21 @@ export function buildStoreCatalogFromProductMasterRows(
       ]
     : [...new Set(rows.map((row) => row.productCode))];
   const displayedProductCodeSet = new Set(displayedProductCodes.map((code) => code.toLowerCase()));
+  const displayedSkuKeys = hasMerchandising
+    ? [
+        ...new Set(
+          normalizedMerchandisingRows
+            .filter((row) =>
+              existingCodeColorSet.has(`${row.productCode.toLowerCase()}|${row.colorCode.toLowerCase()}`),
+            )
+            .map((row) => `${row.productCode.toLowerCase()}|${row.colorCode.toLowerCase()}`),
+        ),
+      ]
+    : [
+        ...new Set(
+          rows.map((row) => `${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`),
+        ),
+      ];
 
   const products = buildProductsFromMasterRows(rows, storeId, normalizedMerchandisingRows).filter((product) =>
     hasMerchandising
@@ -390,6 +413,7 @@ export function buildStoreCatalogFromProductMasterRows(
     zones: [...zoneMap.entries()].map(([id, name]) => ({ id, name })),
     qrZoneId,
     displayedProductCodes,
+    displayedSkuKeys,
     products,
   };
 }

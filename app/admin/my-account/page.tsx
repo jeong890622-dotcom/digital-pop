@@ -55,8 +55,13 @@ export default function MyAccountPage() {
 
   const saveProfile = () => {
     if (!me) return;
-    if (!phoneDraft.trim()) {
+    const normalizedPhone = phoneDraft.replace(/-/g, "").trim();
+    if (!normalizedPhone) {
       setMessage("핸드폰번호를 입력해 주세요.");
+      return;
+    }
+    if (!/^\d{10,11}$/.test(normalizedPhone)) {
+      setMessage("핸드폰번호는 숫자만 10~11자리로 입력해 주세요.");
       return;
     }
 
@@ -65,7 +70,7 @@ export default function MyAccountPage() {
         ...state,
         masterAccounts: state.masterAccounts.map((account) =>
           account.id === me.id
-            ? { ...account, phone: phoneDraft.trim(), team: teamDraft.trim() || account.team }
+            ? { ...account, phone: normalizedPhone, team: teamDraft.trim() || account.team }
             : account,
         ),
       });
@@ -73,7 +78,7 @@ export default function MyAccountPage() {
       setState({
         ...state,
         storeAccounts: state.storeAccounts.map((account) =>
-          account.id === me.id ? { ...account, phone: phoneDraft.trim() } : account,
+          account.id === me.id ? { ...account, phone: normalizedPhone } : account,
         ),
       });
     }

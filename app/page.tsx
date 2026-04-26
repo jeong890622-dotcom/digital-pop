@@ -343,7 +343,7 @@ export default function Home() {
         key={selectedProduct?.id ?? "detail-sheet"}
         product={selectedProduct}
         isOpen={selectedProduct !== null}
-        displayedProductCodes={catalog.displayedProductCodes}
+        displayedSkuKeys={catalog.displayedSkuKeys}
         onClose={handleCloseDetail}
         onAddToQuote={handleAddToQuote}
       />

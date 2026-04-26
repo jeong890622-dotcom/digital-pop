@@ -23,6 +23,7 @@ export function navItemsForRole(role: AdminRole): AdminNavItem[] {
   if (role === "master") {
     return [
       { href: "/admin/products", label: "상품 마스터" },
+      { href: "/admin/product-events", label: "상품 이벤트 등록" },
       { href: "/admin/stores", label: "매장 목록" },
       { href: "/admin/operations", label: "매장 운영" },
       { href: "/admin/account-create/master", label: "마스터 관리자 계정 관리" },

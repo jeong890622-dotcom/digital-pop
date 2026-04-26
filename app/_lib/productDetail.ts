@@ -76,8 +76,13 @@ export function getLineTotal(price: number, quantity: number): number {
 }
 
 export function isDisplayedInStore(
-  displayedProductCodes: string[],
+  displayedSkuKeys: string[],
   productCode: string,
+  colorCode: string | null,
 ): boolean {
-  return displayedProductCodes.includes(productCode);
+  if (!productCode || !colorCode) {
+    return false;
+  }
+  const key = `${productCode.trim().toLowerCase()}|${colorCode.trim().toLowerCase()}`;
+  return displayedSkuKeys.includes(key);
 }

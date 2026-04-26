@@ -18,7 +18,7 @@ import { QuantityStepper } from "./QuantityStepper";
 type ProductDetailSheetProps = {
   product: Product | null;
   isOpen: boolean;
-  displayedProductCodes: string[];
+  displayedSkuKeys: string[];
   onClose: () => void;
   onAddToQuote: (payload: AddToQuotePayload) => void;
 };
@@ -26,7 +26,7 @@ type ProductDetailSheetProps = {
 export function ProductDetailSheet({
   product,
   isOpen,
-  displayedProductCodes,
+  displayedSkuKeys,
   onClose,
   onAddToQuote,
 }: ProductDetailSheetProps) {
@@ -70,11 +70,11 @@ export function ProductDetailSheet({
     return getSelectedProductCode(product, sizeId);
   }, [product, sizeId]);
   const displayedInStore = useMemo(() => {
-    if (!selectedProductCode) {
+    if (!selectedProductCode || !colorId) {
       return false;
     }
-    return isDisplayedInStore(displayedProductCodes, selectedProductCode);
-  }, [displayedProductCodes, selectedProductCode]);
+    return isDisplayedInStore(displayedSkuKeys, selectedProductCode, colorId);
+  }, [colorId, displayedSkuKeys, selectedProductCode]);
   const selectedSizeDetailUrl = useMemo(() => {
     if (!product || !product.hasSize) {
       return "";
