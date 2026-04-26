@@ -8,7 +8,7 @@ import {
   MOCK_STORE_ADMIN_STORE_ID,
   type MockStore,
 } from "../../_data/adminNavigation";
-import { useAdminAccountState } from "../../_lib/adminAccountStore";
+import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
 import { useStoreOperationRows } from "../../_lib/storeOperationStore";
 import type { AdminRole } from "../../_types/admin";
 
@@ -126,7 +126,7 @@ export default function AdminOperationsPage() {
   );
   const searchParams = useSearchParams();
   const role = useMemo(() => parseRole(searchParams.get("role")), [searchParams]);
-  const [adminState] = useAdminAccountState();
+  const [adminState, setAdminState] = useAdminAccountState();
   const stores = adminState.stores;
   const selectedStoreId = useMemo(() => {
     if (role === "store") {
@@ -163,6 +163,11 @@ export default function AdminOperationsPage() {
     () => [...new Set(zoneRows.map((row) => row.zone.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [zoneRows],
   );
+  const selectedStoreAccounts = useMemo(
+    () => adminState.storeAccounts.filter((account) => account.storeId === selectedStoreId),
+    [adminState.storeAccounts, selectedStoreId],
+  );
+  const canManageStoreAccounts = role === "master";
   const visibleZoneRows = useMemo(() => {
     const filtered =
       zoneFilter === "all"
@@ -447,6 +452,43 @@ export default function AdminOperationsPage() {
     } catch {
       setQrMessage("QR 이미지 다운로드에 실패했습니다.");
     }
+  };
+
+  const resetStoreAccountPassword = (accountId: string) => {
+    if (!canManageStoreAccounts) return;
+    setAdminState({
+      ...adminState,
+      storeAccounts: adminState.storeAccounts.map((account) =>
+        account.id === accountId
+          ? { ...account, password: toResetPassword(account.phone), mustChangePassword: true }
+          : account,
+      ),
+    });
+    setQrMessage("비밀번호를 초기화했습니다.");
+  };
+
+  const unlockStoreAccount = (accountId: string) => {
+    if (!canManageStoreAccounts) return;
+    setAdminState({
+      ...adminState,
+      storeAccounts: adminState.storeAccounts.map((account) =>
+        account.id === accountId
+          ? { ...account, status: "ACTIVE", failedCount: 0 }
+          : account,
+      ),
+    });
+    setQrMessage("잠금을 해제했습니다.");
+  };
+
+  const removeStoreAccount = (accountId: string) => {
+    if (!canManageStoreAccounts) return;
+    const confirmed = window.confirm("해당 계정을 삭제하시겠습니까?");
+    if (!confirmed) return;
+    setAdminState({
+      ...adminState,
+      storeAccounts: adminState.storeAccounts.filter((account) => account.id !== accountId),
+    });
+    setQrMessage("계정을 삭제했습니다.");
   };
 
   return (
@@ -820,6 +862,76 @@ export default function AdminOperationsPage() {
                 </table>
               </div>
             )}
+          </>
+        ) : safeTab === "managers" ? (
+          <>
+            <section className="mt-4 rounded-sm border border-[#E5E5E5] bg-[#F5F5F5] p-4">
+              <p className="text-xs text-[#666666]">
+                현재 매장에 소속된 매장 관리자 계정을 조회합니다. 계정 관리는 `매장 관리자 계정 관리`
+                메뉴와 동일한 정책으로 동작합니다.
+              </p>
+            </section>
+
+            <div className="mt-4 overflow-x-auto rounded-sm border border-[#E5E5E5]">
+              <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">이름</th>
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">아이디</th>
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">핸드폰번호</th>
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">상태</th>
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">관리</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedStoreAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-8 text-center text-xs text-[#888888]">
+                        현재 매장에 등록된 매장 관리자 계정이 없습니다.
+                      </td>
+                    </tr>
+                  ) : (
+                    selectedStoreAccounts.map((account) => (
+                      <tr key={account.id} className="border-b border-[#E5E5E5] last:border-b-0">
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.name}</td>
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.username}</td>
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.phone}</td>
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.status}</td>
+                        <td className="px-3 py-2 text-xs">
+                          {canManageStoreAccounts ? (
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                onClick={() => resetStoreAccountPassword(account.id)}
+                                className="text-[#111111] underline-offset-2 hover:underline"
+                              >
+                                비밀번호 초기화
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => unlockStoreAccount(account.id)}
+                                className="text-[#111111] underline-offset-2 hover:underline"
+                              >
+                                잠금 해제
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeStoreAccount(account.id)}
+                                className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+                              >
+                                삭제
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[#888888]">권한 없음</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </>
         ) : (
           <div className="mt-4 overflow-x-auto rounded-sm border border-[#E5E5E5]">

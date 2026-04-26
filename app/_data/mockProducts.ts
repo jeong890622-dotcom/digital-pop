@@ -1,6 +1,7 @@
 import type { ProductOption } from "../_types/productDetail";
 import { INITIAL_PRODUCT_MASTER_ROWS, type ProductMasterRow } from "./mockProductMaster";
 import type { StoreOperationRow } from "../_lib/storeOperationStore";
+import { MOCK_STORES } from "./adminNavigation";
 
 export type Zone = {
   id: string;
@@ -78,16 +79,16 @@ function buildProductsFromMasterRows(
     const rowsByGroupCode = new Map<string, ProductMasterRow[]>();
     const rowByCodeColor = new Map<string, ProductMasterRow>();
     for (const row of rows) {
-      const codeKey = row.productCode.toLowerCase();
+      const codeKey = row.productCode.trim().toLowerCase();
       const codeBucket = rowsByProductCode.get(codeKey) ?? [];
       codeBucket.push(row);
       rowsByProductCode.set(codeKey, codeBucket);
 
-      const groupBucket = rowsByGroupCode.get(row.productGroupCode) ?? [];
+      const groupBucket = rowsByGroupCode.get(row.productGroupCode.trim()) ?? [];
       groupBucket.push(row);
-      rowsByGroupCode.set(row.productGroupCode, groupBucket);
+      rowsByGroupCode.set(row.productGroupCode.trim(), groupBucket);
 
-      rowByCodeColor.set(`${codeKey}|${row.colorCode.toLowerCase()}`, row);
+      rowByCodeColor.set(`${codeKey}|${row.colorCode.trim().toLowerCase()}`, row);
     }
 
     const uniqueMerch = new Map<string, StoreOperationRow>();
@@ -113,7 +114,7 @@ function buildProductsFromMasterRows(
         rowByCodeColor.get(
           `${merchRow.productCode.trim().toLowerCase()}|${merchRow.colorCode.trim().toLowerCase()}`,
         ) ?? codeRows[0]!;
-      const groupRows = rowsByGroupCode.get(base.productGroupCode) ?? codeRows;
+      const groupRows = rowsByGroupCode.get(base.productGroupCode.trim()) ?? codeRows;
 
       const colorMap = new Map<string, ProductOption>();
       for (const row of groupRows) {
@@ -145,7 +146,7 @@ function buildProductsFromMasterRows(
       const hasSize = sizes.length > 1;
       const skuImageMap: Record<string, string> = {};
       for (const row of groupRows) {
-        skuImageMap[`${row.productCode.toLowerCase()}|${row.colorCode.toLowerCase()}`] = row.imageUrl;
+        skuImageMap[`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`] = row.imageUrl;
       }
 
       return {
@@ -173,7 +174,7 @@ function buildProductsFromMasterRows(
 
   const groupCodeByProductCode = new Map<string, string>();
   for (const row of rows) {
-    groupCodeByProductCode.set(row.productCode.toLowerCase(), row.productGroupCode);
+    groupCodeByProductCode.set(row.productCode.trim().toLowerCase(), row.productGroupCode.trim());
   }
 
   const zonesByGroupCode = new Map<string, Set<string>>();
@@ -190,12 +191,12 @@ function buildProductsFromMasterRows(
   const hasMerchandising = merchandisingRows.length > 0;
   const grouped = new Map<string, ProductMasterRow[]>();
   for (const row of rows) {
-    if (hasMerchandising && !zonesByGroupCode.has(row.productGroupCode)) {
+    if (hasMerchandising && !zonesByGroupCode.has(row.productGroupCode.trim())) {
       continue;
     }
-    const bucket = grouped.get(row.productGroupCode) ?? [];
+    const bucket = grouped.get(row.productGroupCode.trim()) ?? [];
     bucket.push(row);
-    grouped.set(row.productGroupCode, bucket);
+    grouped.set(row.productGroupCode.trim(), bucket);
   }
 
   let seq = 1;
@@ -207,7 +208,7 @@ function buildProductsFromMasterRows(
     for (const row of groupedRows) {
       if (!sizeMap.has(row.sizeLabel)) {
         sizeMap.set(row.sizeLabel, {
-          id: `s-${row.productCode.toLowerCase()}`,
+          id: `s-${row.productCode.trim().toLowerCase()}`,
           label: row.sizeLabel,
           productCode: row.productCode,
           optionCode: `${row.productCode}-OPT`,
@@ -251,7 +252,7 @@ function buildProductsFromMasterRows(
     for (const zoneId of zoneIds) {
       const skuImageMap: Record<string, string> = {};
       for (const row of groupedRows) {
-        skuImageMap[`${row.productCode.toLowerCase()}|${row.colorCode.toLowerCase()}`] = row.imageUrl;
+        skuImageMap[`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`] = row.imageUrl;
       }
       products.push({
         id: `p-${String(seq++).padStart(3, "0")}-${zoneId}-${groupCode}`,
@@ -328,6 +329,7 @@ export const mockCatalog: StoreCatalog = {
 export function buildStoreCatalogFromProductMasterRows(
   rows: ProductMasterRow[],
   merchandisingRows: StoreOperationRow[] = [],
+  storeId: string = mockCatalog.storeId,
 ): StoreCatalog {
   const normalizedMerchandisingRows = merchandisingRows
     .map((row) => ({
@@ -339,7 +341,7 @@ export function buildStoreCatalogFromProductMasterRows(
     .filter((row) => row.zone && row.productCode && row.colorCode);
   const hasMerchandising = normalizedMerchandisingRows.length > 0;
   const existingCodeColorSet = new Set(
-    rows.map((row) => `${row.productCode.toLowerCase()}|${row.colorCode.toLowerCase()}`),
+    rows.map((row) => `${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`),
   );
 
   const zoneMap = new Map<string, string>();
@@ -372,15 +374,19 @@ export function buildStoreCatalogFromProductMasterRows(
     : [...new Set(rows.map((row) => row.productCode))];
   const displayedProductCodeSet = new Set(displayedProductCodes.map((code) => code.toLowerCase()));
 
-  const products = buildProductsFromMasterRows(rows, mockCatalog.storeId, normalizedMerchandisingRows).filter((product) =>
+  const products = buildProductsFromMasterRows(rows, storeId, normalizedMerchandisingRows).filter((product) =>
     hasMerchandising
       ? displayedProductCodeSet.has(product.code.toLowerCase()) && zoneMap.has(product.zoneId)
       : true,
   );
   const qrZoneId = zoneMap.keys().next().value ?? mockCatalog.qrZoneId;
+  const resolvedStoreName =
+    MOCK_STORES.find((store) => store.id === storeId)?.name ?? mockCatalog.storeName;
 
   return {
     ...mockCatalog,
+    storeId,
+    storeName: resolvedStoreName,
     zones: [...zoneMap.entries()].map(([id, name]) => ({ id, name })),
     qrZoneId,
     displayedProductCodes,

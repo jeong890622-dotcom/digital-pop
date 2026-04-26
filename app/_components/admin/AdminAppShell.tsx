@@ -42,6 +42,7 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
     () => activeNavHref(pathname, items),
     [pathname, items],
   );
+  const isMyAccountActive = pathname === "/admin/my-account";
 
   const isPasswordChangeRequired = useMemo(() => {
     if (!state.session) {
@@ -135,8 +136,20 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
               );
             })}
           </nav>
-          <div className="border-t border-[#E5E5E5] px-3 py-3 text-[11px] leading-snug text-[#888888]">
-            mock: URL에 <code className="text-[#666666]">?role=store</code> 또는 헤더 전환
+          <div className="border-t border-[#E5E5E5] px-2 py-2">
+            <Link
+              href={adminHref("/admin/my-account", role)}
+              className={`block rounded-sm px-3 py-2 text-sm ${
+                isMyAccountActive
+                  ? "bg-[#F5F5F5] font-medium text-[#111111]"
+                  : "text-[#666666] hover:bg-[#F5F5F5] hover:text-[#111111]"
+              }`}
+            >
+              내 정보 관리
+            </Link>
+            <p className="mt-2 px-1 text-[11px] leading-snug text-[#888888]">
+              mock: URL에 <code className="text-[#666666]">?role=store</code> 또는 헤더 전환
+            </p>
           </div>
         </aside>
 
@@ -184,6 +197,12 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
               >
                 로그아웃
               </button>
+              <Link
+                href={adminHref("/admin/my-account", role)}
+                className="ml-2 text-xs text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+              >
+                내 정보 관리
+              </Link>
               <Link
                 href="/"
                 className="ml-2 text-xs text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"

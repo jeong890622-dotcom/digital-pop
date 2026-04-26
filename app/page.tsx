@@ -43,7 +43,7 @@ export default function Home() {
   const [productMasterRows] = useProductMasterRows();
   const [operationRowsByStore] = useStoreOperationRows();
   const baseCatalog = useMemo(
-    () => buildStoreCatalogFromProductMasterRows(productMasterRows),
+    () => buildStoreCatalogFromProductMasterRows(productMasterRows, [], "store-seoul-gangnam"),
     [productMasterRows],
   );
   const matchedQr = baseCatalog.qrEntries.find((entry) => entry.id === qrIdParam);
@@ -69,15 +69,39 @@ export default function Home() {
       ? (matchedQr?.areaId ?? matchedQr?.zoneId ?? zoneIdParam ?? areaIdParam)
       : (zoneIdParam ?? areaIdParam);
 
-  const resolvedStoreId =
-    effectiveStoreId === baseCatalog.storeId ? baseCatalog.storeId : baseCatalog.storeId;
+  const resolvedStoreId = effectiveStoreId ?? baseCatalog.storeId;
+  const merchandisingRowsForStore = useMemo(() => {
+    const directRows = operationRowsByStore[resolvedStoreId];
+    if (Array.isArray(directRows) && directRows.length > 0) {
+      return directRows;
+    }
+
+    const caseInsensitiveKey = Object.keys(operationRowsByStore).find(
+      (key) => key.toLowerCase() === resolvedStoreId.toLowerCase(),
+    );
+    if (caseInsensitiveKey) {
+      const rows = operationRowsByStore[caseInsensitiveKey];
+      if (Array.isArray(rows) && rows.length > 0) {
+        return rows;
+      }
+    }
+
+    return Object.values(operationRowsByStore)
+      .flat()
+      .filter(
+        (row) =>
+          typeof row.storeId === "string" &&
+          row.storeId.trim().toLowerCase() === resolvedStoreId.toLowerCase(),
+      );
+  }, [operationRowsByStore, resolvedStoreId]);
   const catalog = useMemo(
     () =>
       buildStoreCatalogFromProductMasterRows(
         productMasterRows,
-        operationRowsByStore[resolvedStoreId] ?? [],
+        merchandisingRowsForStore,
+        resolvedStoreId,
       ),
-    [operationRowsByStore, productMasterRows, resolvedStoreId],
+    [merchandisingRowsForStore, productMasterRows, resolvedStoreId],
   );
   const isAllZoneParam = effectiveZoneParam === ALL_ZONE_VALUE;
   const zoneExists = catalog.zones.some((zone) => zone.id === effectiveZoneParam);

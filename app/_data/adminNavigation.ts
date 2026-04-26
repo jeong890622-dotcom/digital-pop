@@ -42,5 +42,9 @@ export function normalizePath(pathname: string): string {
 
 export function isPathAllowedForStore(pathname: string): boolean {
   const path = normalizePath(pathname);
-  return path === "/admin/operations" || path.startsWith("/admin/operations/");
+  return (
+    path === "/admin/operations" ||
+    path.startsWith("/admin/operations/") ||
+    path === "/admin/my-account"
+  );
 }
