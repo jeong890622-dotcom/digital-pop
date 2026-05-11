@@ -90,7 +90,7 @@ const INITIAL_STATE: AdminAccountState = {
       team: "Digital POP TF",
       phone: "01012345678",
       username: "supermaster",
-      password: "01012345678@",
+      password: process.env.NEXT_PUBLIC_SUPERMASTER_PASSWORD ?? "",
       status: "ACTIVE",
       isSuper: true,
       failedCount: 0,
