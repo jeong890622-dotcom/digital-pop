@@ -10,13 +10,14 @@ import {
   type StoreRow,
 } from "../../_lib/supabaseAdmin";
 
-function suggestStoreIdFromCode(code: string): string {
+function deriveStoreIdFromCode(code: string): string {
   const slug = code
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug ? `store-${slug}` : "";
+  if (slug) return `store-${slug}`;
+  return `store-${Date.now()}`;
 }
 
 export default function AdminStoresPage() {
@@ -24,7 +25,6 @@ export default function AdminStoresPage() {
   const [loading, setLoading] = useState(true);
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
-  const [storeIdDraft, setStoreIdDraft] = useState("");
   const [storeCodeDraft, setStoreCodeDraft] = useState("");
   const [storeNameDraft, setStoreNameDraft] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,12 +43,10 @@ export default function AdminStoresPage() {
 
   const normalizedCode = useMemo(() => storeCodeDraft.trim().toUpperCase(), [storeCodeDraft]);
   const normalizedName = useMemo(() => storeNameDraft.trim(), [storeNameDraft]);
-  const normalizedId = useMemo(() => storeIdDraft.trim().toLowerCase(), [storeIdDraft]);
 
   const openCreateModal = () => {
     setModalMode("create");
     setEditingStoreId(null);
-    setStoreIdDraft("");
     setStoreCodeDraft("");
     setStoreNameDraft("");
     setFormError(null);
@@ -59,7 +57,6 @@ export default function AdminStoresPage() {
     if (!target) return;
     setModalMode("edit");
     setEditingStoreId(storeId);
-    setStoreIdDraft(target.id);
     setStoreCodeDraft(target.code);
     setStoreNameDraft(target.name);
     setFormError(null);
@@ -80,22 +77,13 @@ export default function AdminStoresPage() {
       setFormError("매장명을 입력해 주세요.");
       return;
     }
-    const idValue = normalizedId || suggestStoreIdFromCode(normalizedCode);
-    if (!idValue) {
-      setFormError("매장 ID 를 입력해 주세요. (영문/숫자/하이픈)");
-      return;
-    }
-    if (!/^[a-z0-9-]+$/.test(idValue)) {
-      setFormError("매장 ID 는 영문 소문자/숫자/하이픈만 사용할 수 있습니다.");
-      return;
-    }
-    if (stores.some((store) => store.id === idValue)) {
-      setFormError("이미 사용 중인 매장 ID 입니다.");
-      return;
-    }
     if (stores.some((store) => store.code.toUpperCase() === normalizedCode)) {
       setFormError("이미 등록된 매장코드입니다.");
       return;
+    }
+    let idValue = deriveStoreIdFromCode(normalizedCode);
+    if (stores.some((store) => store.id === idValue)) {
+      idValue = `store-${Date.now()}`;
     }
 
     setIsSaving(true);
@@ -218,22 +206,6 @@ export default function AdminStoresPage() {
 
             <div className="mt-4 space-y-3">
               <div className="flex flex-col gap-1">
-                <label htmlFor="store-create-id" className="text-xs text-[#888888]">
-                  매장 ID
-                </label>
-                <input
-                  id="store-create-id"
-                  value={storeIdDraft}
-                  onChange={(e) => setStoreIdDraft(e.target.value)}
-                  disabled={modalMode === "edit"}
-                  placeholder="예: store-nowon (영문/숫자/하이픈, 비우면 자동 생성)"
-                  className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111] disabled:bg-[#F5F5F5] disabled:text-[#888888]"
-                />
-                <p className="text-[11px] text-[#888888]">
-                  한 번 정하면 변경할 수 없습니다.
-                </p>
-              </div>
-              <div className="flex flex-col gap-1">
                 <label htmlFor="store-create-code" className="text-xs text-[#888888]">
                   매장코드
                 </label>
@@ -245,6 +217,9 @@ export default function AdminStoresPage() {
                   placeholder="예: GNM"
                   className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111] disabled:bg-[#F5F5F5] disabled:text-[#888888]"
                 />
+                <p className="text-[11px] text-[#888888]">
+                  영문/숫자 위주의 짧은 약어. 한 번 정하면 변경할 수 없습니다.
+                </p>
               </div>
               <div className="flex flex-col gap-1">
                 <label htmlFor="store-create-name" className="text-xs text-[#888888]">
