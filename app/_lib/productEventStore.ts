@@ -2,8 +2,10 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import type { ProductEventRules } from "../_types/productBadge";
-
-const STORAGE_KEY = "digital-pop:product-event-rules";
+import {
+  fetchProductEventRules,
+  replaceProductEventRules,
+} from "./supabaseProductGroups";
 
 const DEFAULT_RULES: ProductEventRules = {
   wallRequiredProductCodes: [],
@@ -14,6 +16,8 @@ const DEFAULT_RULES: ProductEventRules = {
 let state: ProductEventRules = DEFAULT_RULES;
 const listeners = new Set<() => void>();
 let hydrated = false;
+let hydrationInFlight: Promise<void> | null = null;
+let lastSyncError: string | null = null;
 
 function normalizeCodeList(list: unknown): string[] {
   if (!Array.isArray(list)) return [];
@@ -33,21 +37,20 @@ function notify(): void {
 }
 
 function hydrate(): void {
-  if (hydrated || typeof window === "undefined") return;
-  hydrated = true;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return;
-  try {
-    const parsed = JSON.parse(raw) as Partial<ProductEventRules>;
-    state = normalizeRules(parsed);
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function persist(next: ProductEventRules): void {
+  if (hydrated || hydrationInFlight) return;
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  hydrationInFlight = (async () => {
+    try {
+      const remote = await fetchProductEventRules();
+      state = normalizeRules(remote);
+    } catch {
+      // 네트워크 실패 시 빈 상태 유지
+    } finally {
+      hydrated = true;
+      hydrationInFlight = null;
+      notify();
+    }
+  })();
 }
 
 export function getProductEventRulesSnapshot(): ProductEventRules {
@@ -60,10 +63,34 @@ export function subscribeProductEventRules(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
+export function getProductEventRulesLastSyncError(): string | null {
+  return lastSyncError;
+}
+
+export async function reloadProductEventRules(): Promise<void> {
+  const remote = await fetchProductEventRules();
+  state = normalizeRules(remote);
+  hydrated = true;
+  notify();
+}
+
 export function setProductEventRules(next: ProductEventRules): void {
   state = normalizeRules(next);
-  persist(state);
+  hydrated = true;
   notify();
+  void (async () => {
+    const result = await replaceProductEventRules(state);
+    if (!result.ok) {
+      lastSyncError = result.message;
+      if (typeof window !== "undefined") {
+        window.alert(
+          `이벤트 규칙 저장에 실패했습니다.\n${result.message}\n페이지를 새로고침한 뒤 다시 시도해 주세요.`,
+        );
+      }
+      return;
+    }
+    lastSyncError = null;
+  })();
 }
 
 export function useProductEventRules(): [

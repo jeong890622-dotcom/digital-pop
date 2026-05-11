@@ -2,14 +2,18 @@
 
 import { useMemo, useSyncExternalStore } from "react";
 import type { ProductGroupOptionRule } from "../_types/productGroupOption";
-
-const STORAGE_KEY = "digital-pop:product-group-option-rules";
+import {
+  fetchAllProductGroupOptions,
+  replaceAllProductGroupOptions,
+} from "./supabaseProductGroups";
 
 const DEFAULT_RULES: ProductGroupOptionRule[] = [];
 
 let state: ProductGroupOptionRule[] = DEFAULT_RULES;
 const listeners = new Set<() => void>();
 let hydrated = false;
+let hydrationInFlight: Promise<void> | null = null;
+let lastSyncError: string | null = null;
 
 function normalizeRules(raw: unknown): ProductGroupOptionRule[] {
   if (!Array.isArray(raw)) return [];
@@ -50,21 +54,20 @@ function notify(): void {
 }
 
 function hydrate(): void {
-  if (hydrated || typeof window === "undefined") return;
-  hydrated = true;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) return;
-  try {
-    const parsed = JSON.parse(raw);
-    state = normalizeRules(parsed);
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function persist(next: ProductGroupOptionRule[]): void {
+  if (hydrated || hydrationInFlight) return;
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  hydrationInFlight = (async () => {
+    try {
+      const remote = await fetchAllProductGroupOptions();
+      state = normalizeRules(remote);
+    } catch {
+      // 네트워크 실패 시 빈 상태 유지
+    } finally {
+      hydrated = true;
+      hydrationInFlight = null;
+      notify();
+    }
+  })();
 }
 
 export function getProductGroupOptionRulesSnapshot(): ProductGroupOptionRule[] {
@@ -77,10 +80,34 @@ export function subscribeProductGroupOptionRules(listener: () => void): () => vo
   return () => listeners.delete(listener);
 }
 
+export function getProductGroupOptionRulesLastSyncError(): string | null {
+  return lastSyncError;
+}
+
+export async function reloadProductGroupOptionRules(): Promise<void> {
+  const remote = await fetchAllProductGroupOptions();
+  state = normalizeRules(remote);
+  hydrated = true;
+  notify();
+}
+
 export function setProductGroupOptionRules(next: ProductGroupOptionRule[]): void {
   state = normalizeRules(next);
-  persist(state);
+  hydrated = true;
   notify();
+  void (async () => {
+    const result = await replaceAllProductGroupOptions(state);
+    if (!result.ok) {
+      lastSyncError = result.message;
+      if (typeof window !== "undefined") {
+        window.alert(
+          `상품군 옵션 저장에 실패했습니다.\n${result.message}\n페이지를 새로고침한 뒤 다시 시도해 주세요.`,
+        );
+      }
+      return;
+    }
+    lastSyncError = null;
+  })();
 }
 
 export function useProductGroupOptionRules(): [
@@ -98,4 +125,3 @@ export function useProductGroupOptionRules(): [
   );
   return [rules, setRules];
 }
-

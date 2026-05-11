@@ -1,38 +1,21 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
-import { INITIAL_PRODUCT_MASTER_ROWS } from "../_data/mockProductMaster";
 import { EXCEL_ERROR_CELL_HINT, looksLikeExcelErrorCell } from "./excelFormulaErrorLabel";
 import { repairStoredKoreanLabel } from "./textEncodingHeuristic";
 import type { ProductGroupRegistryEntry } from "../_types/productGroupRegistry";
-
-const STORAGE_KEY = "digital-pop:product-group-registry";
+import {
+  fetchAllProductGroupRegistry,
+  replaceAllProductGroupRegistry,
+} from "./supabaseProductGroups";
 
 let registryState: ProductGroupRegistryEntry[] = [];
 const listeners = new Set<() => void>();
 let hydrated = false;
+let hydrationInFlight: Promise<void> | null = null;
+let lastSyncError: string | null = null;
 
 const AUTO_CODE_RE = /^PG-AUTO-(\d+)$/i;
-
-function buildSeedFromInitialMaster(): ProductGroupRegistryEntry[] {
-  const seen = new Map<string, ProductGroupRegistryEntry>();
-  let seq = 0;
-  for (const row of INITIAL_PRODUCT_MASTER_ROWS) {
-    const code = row.productGroupCode.trim();
-    const name = row.productGroupName.trim();
-    if (!code || !name) continue;
-    const key = `${code}\n${name}`;
-    if (seen.has(key)) continue;
-    seen.set(key, {
-      id: `pgr-seed-${seq}`,
-      productGroupCode: code,
-      productGroupName: name,
-      usesOptionRules: false,
-    });
-    seq += 1;
-  }
-  return [...seen.values()];
-}
 
 function nextAutoCode(entries: ProductGroupRegistryEntry[]): string {
   let max = 0;
@@ -63,48 +46,25 @@ function notify(): void {
   }
 }
 
-function hydrateFromStorage(): void {
-  if (hydrated || typeof window === "undefined") {
-    return;
-  }
-  hydrated = true;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    registryState = buildSeedFromInitialMaster();
-    persistToStorage(registryState);
-    return;
-  }
-  try {
-    const parsed = JSON.parse(raw) as ProductGroupRegistryEntry[];
-    if (!Array.isArray(parsed)) {
-      registryState = buildSeedFromInitialMaster();
-      persistToStorage(registryState);
-      return;
+function hydrate(): void {
+  if (hydrated || hydrationInFlight) return;
+  if (typeof window === "undefined") return;
+  hydrationInFlight = (async () => {
+    try {
+      const remote = await fetchAllProductGroupRegistry();
+      registryState = normalizeRegistry(remote);
+    } catch {
+      // 네트워크 실패 시 빈 상태 유지
+    } finally {
+      hydrated = true;
+      hydrationInFlight = null;
+      notify();
     }
-    /** 저장된 `[]`는 사용자가 전체 삭제한 상태로 유지한다 (시드로 되돌리지 않음). */
-    if (parsed.length === 0) {
-      registryState = [];
-      persistToStorage([]);
-      return;
-    }
-    registryState = normalizeRegistry(parsed);
-    persistToStorage(registryState);
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-    registryState = buildSeedFromInitialMaster();
-    persistToStorage(registryState);
-  }
-}
-
-function persistToStorage(next: ProductGroupRegistryEntry[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  })();
 }
 
 export function getProductGroupRegistrySnapshot(): ProductGroupRegistryEntry[] {
-  hydrateFromStorage();
+  hydrate();
   return registryState;
 }
 
@@ -115,10 +75,39 @@ export function subscribeProductGroupRegistry(listener: () => void): () => void 
   };
 }
 
+export function getProductGroupRegistryLastSyncError(): string | null {
+  return lastSyncError;
+}
+
+export async function reloadProductGroupRegistry(): Promise<void> {
+  const remote = await fetchAllProductGroupRegistry();
+  registryState = normalizeRegistry(remote);
+  hydrated = true;
+  notify();
+}
+
+/**
+ * 상품군 레지스트리 전체를 next 로 교체합니다.
+ * - 화면(local state)에는 즉시 반영하고, 백그라운드로 Supabase 와 sync.
+ * - sync 실패 시 lastSyncError 에 사유가 저장되고, alert 으로 안내합니다.
+ */
 export function setProductGroupRegistryEntries(next: ProductGroupRegistryEntry[]): void {
   registryState = normalizeRegistry(next);
-  persistToStorage(registryState);
+  hydrated = true;
   notify();
+  void (async () => {
+    const result = await replaceAllProductGroupRegistry(registryState);
+    if (!result.ok) {
+      lastSyncError = result.message;
+      if (typeof window !== "undefined") {
+        window.alert(
+          `상품군 저장에 실패했습니다.\n${result.message}\n페이지를 새로고침한 뒤 다시 시도해 주세요.`,
+        );
+      }
+      return;
+    }
+    lastSyncError = null;
+  })();
 }
 
 export function useProductGroupRegistry(): [
@@ -128,9 +117,12 @@ export function useProductGroupRegistry(): [
   const entries = useSyncExternalStore(
     subscribeProductGroupRegistry,
     getProductGroupRegistrySnapshot,
-    () => buildSeedFromInitialMaster(),
+    () => [] as ProductGroupRegistryEntry[],
   );
-  const setEntries = useMemo(() => (next: ProductGroupRegistryEntry[]) => setProductGroupRegistryEntries(next), []);
+  const setEntries = useMemo(
+    () => (next: ProductGroupRegistryEntry[]) => setProductGroupRegistryEntries(next),
+    [],
+  );
   return [entries, setEntries];
 }
 
@@ -261,9 +253,7 @@ export function deleteProductGroupRegistryEntry(
   return entries.filter((e) => e.id !== id);
 }
 
-/** 브라우저 저장소의 상품군 레지스트리를 비운다. 상품 마스터 행과 불일치할 수 있다. */
+/** 저장된 상품군 레지스트리를 비운다. 상품 마스터 행과 불일치할 수 있다. */
 export function clearProductGroupRegistry(): void {
-  registryState = [];
-  persistToStorage([]);
-  notify();
+  setProductGroupRegistryEntries([]);
 }
