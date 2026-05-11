@@ -1,13 +1,17 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
-import { INITIAL_PRODUCT_MASTER_ROWS, type ProductMasterRow } from "../_data/mockProductMaster";
+import { type ProductMasterRow } from "../_data/mockProductMaster";
+import {
+  fetchAllProductMaster,
+  replaceAllProductMaster,
+} from "./supabaseProducts";
 
-const STORAGE_KEY = "digital-pop:product-master-rows";
-
-let rowsState: ProductMasterRow[] = INITIAL_PRODUCT_MASTER_ROWS;
+let rowsState: ProductMasterRow[] = [];
 const listeners = new Set<() => void>();
 let hydrated = false;
+let hydrationInFlight: Promise<void> | null = null;
+let lastSyncError: string | null = null;
 
 function isRenderableImageUrl(url: string): boolean {
   const trimmed = url.trim();
@@ -39,35 +43,25 @@ function notify(): void {
   }
 }
 
-function hydrateFromStorage(): void {
-  if (hydrated || typeof window === "undefined") {
-    return;
-  }
-  hydrated = true;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return;
-  }
-  try {
-    const parsed = JSON.parse(raw) as ProductMasterRow[];
-    if (Array.isArray(parsed)) {
-      rowsState = normalizeRows(parsed);
-      persistToStorage(rowsState);
+function hydrate(): void {
+  if (hydrated || hydrationInFlight) return;
+  if (typeof window === "undefined") return;
+  hydrationInFlight = (async () => {
+    try {
+      const remote = await fetchAllProductMaster();
+      rowsState = normalizeRows(remote);
+    } catch {
+      // 네트워크 실패 시 빈 상태 유지
+    } finally {
+      hydrated = true;
+      hydrationInFlight = null;
+      notify();
     }
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function persistToStorage(nextRows: ProductMasterRow[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRows));
+  })();
 }
 
 export function getProductMasterRowsSnapshot(): ProductMasterRow[] {
-  hydrateFromStorage();
+  hydrate();
   return rowsState;
 }
 
@@ -78,18 +72,55 @@ export function subscribeProductMasterRows(listener: () => void): () => void {
   };
 }
 
-export function setProductMasterRows(nextRows: ProductMasterRow[]): void {
-  rowsState = normalizeRows(nextRows);
-  persistToStorage(rowsState);
+export function getProductMasterLastSyncError(): string | null {
+  return lastSyncError;
+}
+
+export async function reloadProductMasterRows(): Promise<void> {
+  const remote = await fetchAllProductMaster();
+  rowsState = normalizeRows(remote);
+  hydrated = true;
   notify();
 }
 
-export function useProductMasterRows(): [ProductMasterRow[], (nextRows: ProductMasterRow[]) => void] {
+/**
+ * 상품 마스터 전체를 nextRows 로 교체합니다.
+ * - 화면(local state)에는 즉시 반영하고, 백그라운드로 Supabase 와 sync.
+ * - sync 실패 시 lastSyncError 에 사유가 저장되고, alert 으로 안내합니다.
+ */
+export function setProductMasterRows(nextRows: ProductMasterRow[]): void {
+  const normalized = normalizeRows(nextRows);
+  rowsState = normalized;
+  hydrated = true;
+  notify();
+  void (async () => {
+    const result = await replaceAllProductMaster(normalized);
+    if (!result.ok) {
+      lastSyncError = result.message;
+      if (typeof window !== "undefined") {
+        // 비개발자 운영자가 실패를 인지할 수 있도록 명확히 알림
+        window.alert(
+          `상품 마스터 저장에 실패했습니다.\n${result.message}\n페이지를 새로고침한 뒤 다시 시도해 주세요.`,
+        );
+      }
+      return;
+    }
+    lastSyncError = null;
+  })();
+}
+
+export function useProductMasterRows(): [
+  ProductMasterRow[],
+  (nextRows: ProductMasterRow[]) => void,
+] {
   const rows = useSyncExternalStore(
     subscribeProductMasterRows,
     getProductMasterRowsSnapshot,
-    () => INITIAL_PRODUCT_MASTER_ROWS,
+    () => [] as ProductMasterRow[],
   );
-  const setRows = useMemo(() => (nextRows: ProductMasterRow[]) => setProductMasterRows(nextRows), []);
+  const setRows = useMemo(
+    () => (nextRows: ProductMasterRow[]) => setProductMasterRows(nextRows),
+    [],
+  );
   return [rows, setRows];
 }
