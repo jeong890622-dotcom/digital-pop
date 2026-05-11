@@ -16,25 +16,25 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cachedClient: SupabaseClient | null | undefined;
 
-function readPublicEnv(name: string): string {
-  const value = process.env[name];
-  return typeof value === "string" ? value.trim() : "";
-}
+/**
+ * Next.js는 NEXT_PUBLIC_* 환경 변수를 빌드 시 **정확한 이름으로 직접 접근**한 곳에만 값을 끼워 넣는다.
+ * 동적으로 process.env[변수]처럼 접근하면 브라우저에서는 undefined가 되어버린다.
+ * 그래서 아래는 반드시 "리터럴 키"로 적어 두어야 한다.
+ */
+const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
+const SUPABASE_ANON_KEY = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (cachedClient !== undefined) {
     return cachedClient;
   }
 
-  const url = readPublicEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const anonKey = readPublicEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-
-  if (!url || !anonKey) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     cachedClient = null;
     return cachedClient;
   }
 
-  cachedClient = createClient(url, anonKey, {
+  cachedClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -46,8 +46,5 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 /** 환경 변수가 모두 채워져 있어 Supabase가 사용 가능한지 */
 export function isSupabaseConfigured(): boolean {
-  return Boolean(
-    readPublicEnv("NEXT_PUBLIC_SUPABASE_URL") &&
-      readPublicEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-  );
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 }
