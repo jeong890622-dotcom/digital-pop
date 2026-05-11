@@ -29,13 +29,14 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
       aria-label={`${product.name} 상세 보기`}
     >
       <article className="group">
-        <div className="flex aspect-square items-center justify-center bg-white">
+        <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-white">
           <Image
             src={safeImageSrc}
             alt={product.name}
             width={140}
             height={140}
-            className="scale-[2.2] object-contain contrast-115 saturate-110"
+            className="h-full w-full object-contain contrast-115 saturate-110"
+            sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw"
           />
         </div>
         <div className="pt-3 text-center">
