@@ -97,7 +97,12 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
     router.replace("/admin");
   };
 
-  /** 페이지 새로고침 시 Supabase 세션이 있으면 한 번만 복원 */
+  /**
+   * 페이지 새로고침/접속 시 Supabase 세션을 실제 검증한다.
+   * - getUser() 로 서버 확인하여 만료된 access token / 무효한 refresh token 을
+   *   사용하는 케이스를 즉시 정리해야, 이후 데이터 조회가 anon 또는 정상 세션으로 동작한다.
+   * - 검증 실패 시 자동으로 signOut + localStorage mock 세션 정리하여 깨끗한 상태로 만든다.
+   */
   const stateRef = useRef(state);
   stateRef.current = state;
   const setStateRef = useRef(setState);
@@ -107,26 +112,33 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
     if (!client) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await client.auth.getSession();
+      const { data: userData, error: userError } = await client.auth.getUser();
       if (cancelled) return;
-      const supaSession = data.session;
+      const supaUser = userData?.user ?? null;
       const localSession = stateRef.current.session;
-      if (!supaSession) {
-        // Supabase 로그아웃 상태인데 localStorage에만 mock 세션이 남아 있다면 정리
+
+      if (userError || !supaUser) {
+        // 만료/무효한 옛 세션이면 깨끗이 정리하여 다음 fetch 호출이 anon 으로 정상 동작하게 함
+        await client.auth.signOut().catch(() => {});
         if (localSession) {
           setStateRef.current({ ...stateRef.current, session: null });
         }
         return;
       }
-      if (localSession?.accountId === supaSession.user.id) return;
+
+      if (localSession?.accountId === supaUser.id) return;
+
       const { data: profile, error } = await client
         .from("admin_profiles")
         .select("id, role, username, is_super, store_id, status")
-        .eq("id", supaSession.user.id)
+        .eq("id", supaUser.id)
         .single<AdminProfileRow>();
       if (cancelled || error || !profile) return;
       if (profile.status !== "ACTIVE") {
         await client.auth.signOut();
+        if (stateRef.current.session) {
+          setStateRef.current({ ...stateRef.current, session: null });
+        }
         return;
       }
       setStateRef.current({
