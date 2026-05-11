@@ -1,23 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useAdminAccountState, toResetPassword, type AdminSession } from "../../_lib/adminAccountStore";
+import { useEffect, useState } from "react";
+import { useAdminAccountState, type AdminSession } from "../../_lib/adminAccountStore";
 import { getSupabaseClient } from "../../_lib/supabase";
-
-/** 사용자가 입력한 username을 Supabase Auth용 이메일로 매핑 */
-const SUPABASE_EMAIL_DOMAIN = "digital-pop.local";
-function usernameToEmail(username: string): string {
-  return `${username.trim().toLowerCase()}@${SUPABASE_EMAIL_DOMAIN}`;
-}
-
-type AdminProfileRow = {
-  id: string;
-  role: "master" | "store";
-  username: string;
-  is_super: boolean;
-  store_id: string | null;
-  status: "PENDING" | "ACTIVE" | "REJECTED" | "LOCKED";
-};
+import {
+  fetchStores,
+  signUpAdminApplicant,
+  usernameToEmail,
+  type AdminProfileRow,
+  type StoreRow,
+} from "../../_lib/supabaseAdmin";
 
 function adminSessionFromProfile(profile: AdminProfileRow): AdminSession {
   if (profile.role === "master") {
@@ -52,91 +44,118 @@ export function AdminAuthGate() {
   const [masterPhone, setMasterPhone] = useState("");
   const [masterId, setMasterId] = useState("");
   const [masterPw, setMasterPw] = useState("");
+  const [isMasterApplying, setIsMasterApplying] = useState(false);
 
+  const [stores, setStores] = useState<StoreRow[]>([]);
   const [storeName, setStoreName] = useState("");
-  const [storeId, setStoreId] = useState(state.stores[0]?.id ?? "");
+  const [storeId, setStoreId] = useState("");
   const [storePhone, setStorePhone] = useState("");
   const [storeUserId, setStoreUserId] = useState("");
   const [storePw, setStorePw] = useState("");
+  const [isStoreApplying, setIsStoreApplying] = useState(false);
 
-  const usedIds = useMemo(
-    () =>
-      new Set(
-        [
-          ...state.masterAccounts.map((a) => a.username.toLowerCase()),
-          ...state.storeAccounts.map((a) => a.username.toLowerCase()),
-          ...state.masterApplications.map((a) => a.username.toLowerCase()),
-          ...state.storeApplications.map((a) => a.username.toLowerCase()),
-        ],
-      ),
-    [state],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const list = await fetchStores();
+      if (cancelled) return;
+      setStores(list);
+      if (list.length > 0) {
+        setStoreId((prev) => (prev && list.some((s) => s.id === prev) ? prev : list[0]!.id));
+      } else {
+        setStoreId("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const submitMasterApply = () => {
-    if (!masterName.trim() || !masterTeam.trim() || !masterPhone.trim() || !masterId.trim() || !masterPw.trim()) {
-      setMessage("모든 항목을 입력해 주세요.");
-      return;
-    }
-    const key = masterId.trim().toLowerCase();
-    if (usedIds.has(key)) {
-      setMessage("이미 사용 중인 아이디입니다.");
-      return;
-    }
-    setState({
-      ...state,
-      masterApplications: [
-        {
-          id: `mapp-${Date.now()}`,
-          name: masterName.trim(),
-          team: masterTeam.trim(),
-          phone: masterPhone.trim(),
-          username: masterId.trim(),
-          password: masterPw,
-          status: "PENDING",
-          createdAt: new Date().toISOString(),
-        },
-        ...state.masterApplications,
-      ],
-    });
+  const resetMasterForm = () => {
     setMasterName("");
     setMasterTeam("");
     setMasterPhone("");
     setMasterId("");
     setMasterPw("");
-    setMessage("마스터 관리자 신청이 접수되었습니다. 승인 후 로그인 가능합니다.");
   };
 
-  const submitStoreApply = () => {
-    if (!storeName.trim() || !storeId || !storePhone.trim() || !storeUserId.trim() || !storePw.trim()) {
-      setMessage("모든 항목을 입력해 주세요.");
-      return;
-    }
-    const key = storeUserId.trim().toLowerCase();
-    if (usedIds.has(key)) {
-      setMessage("이미 사용 중인 아이디입니다.");
-      return;
-    }
-    setState({
-      ...state,
-      storeApplications: [
-        {
-          id: `sapp-${Date.now()}`,
-          name: storeName.trim(),
-          storeId,
-          phone: storePhone.trim(),
-          username: storeUserId.trim(),
-          password: storePw,
-          status: "PENDING",
-          createdAt: new Date().toISOString(),
-        },
-        ...state.storeApplications,
-      ],
-    });
+  const resetStoreForm = () => {
     setStoreName("");
     setStorePhone("");
     setStoreUserId("");
     setStorePw("");
-    setMessage("매장 관리자 신청이 접수되었습니다. 승인 후 로그인 가능합니다.");
+  };
+
+  const submitMasterApply = async () => {
+    if (
+      !masterName.trim() ||
+      !masterTeam.trim() ||
+      !masterPhone.trim() ||
+      !masterId.trim() ||
+      !masterPw.trim()
+    ) {
+      setMessage("모든 항목을 입력해 주세요.");
+      return;
+    }
+    if (masterPw.length < 6) {
+      setMessage("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+    setIsMasterApplying(true);
+    try {
+      const result = await signUpAdminApplicant({
+        username: masterId,
+        password: masterPw,
+        role: "master",
+        name: masterName,
+        phone: masterPhone,
+        team: masterTeam,
+      });
+      if (!result.ok) {
+        setMessage(result.message);
+        return;
+      }
+      resetMasterForm();
+      setMessage("마스터 관리자 신청이 접수되었습니다. 승인 후 로그인 가능합니다.");
+    } finally {
+      setIsMasterApplying(false);
+    }
+  };
+
+  const submitStoreApply = async () => {
+    if (
+      !storeName.trim() ||
+      !storeId ||
+      !storePhone.trim() ||
+      !storeUserId.trim() ||
+      !storePw.trim()
+    ) {
+      setMessage("모든 항목을 입력해 주세요.");
+      return;
+    }
+    if (storePw.length < 6) {
+      setMessage("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+    setIsStoreApplying(true);
+    try {
+      const result = await signUpAdminApplicant({
+        username: storeUserId,
+        password: storePw,
+        role: "store",
+        name: storeName,
+        phone: storePhone,
+        storeId,
+      });
+      if (!result.ok) {
+        setMessage(result.message);
+        return;
+      }
+      resetStoreForm();
+      setMessage("매장 관리자 신청이 접수되었습니다. 승인 후 로그인 가능합니다.");
+    } finally {
+      setIsStoreApplying(false);
+    }
   };
 
   const handleLogin = async () => {
@@ -167,7 +186,7 @@ export function AdminAuthGate() {
 
       const { data: profile, error: profileError } = await client
         .from("admin_profiles")
-        .select("id, role, username, is_super, store_id, status")
+        .select("id, role, username, name, phone, team, is_super, store_id, status, rejected_reason, created_at")
         .eq("id", signInData.user.id)
         .single<AdminProfileRow>();
 
@@ -267,26 +286,50 @@ export function AdminAuthGate() {
           <input value={masterName} onChange={(e) => setMasterName(e.target.value)} placeholder="이름" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
           <input value={masterTeam} onChange={(e) => setMasterTeam(e.target.value)} placeholder="소속팀" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
           <input value={masterPhone} onChange={(e) => setMasterPhone(e.target.value)} placeholder="핸드폰번호" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <input value={masterId} onChange={(e) => setMasterId(e.target.value)} placeholder="아이디" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <input type="password" value={masterPw} onChange={(e) => setMasterPw(e.target.value)} placeholder="비밀번호" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <button type="button" onClick={submitMasterApply} className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white">신청</button>
+          <input value={masterId} onChange={(e) => setMasterId(e.target.value)} placeholder="아이디 (영문/숫자)" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
+          <input type="password" value={masterPw} onChange={(e) => setMasterPw(e.target.value)} placeholder="비밀번호 (6자 이상)" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
+          <button
+            type="button"
+            onClick={submitMasterApply}
+            disabled={isMasterApplying}
+            className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {isMasterApplying ? "신청 중…" : "신청"}
+          </button>
         </div>
       ) : null}
 
       {tab === "store-apply" ? (
         <div className="mt-4 grid gap-3">
           <input value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="이름" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm">
-            {state.stores.map((store) => (
-              <option key={store.id} value={store.id}>
-                {store.name}
-              </option>
-            ))}
-          </select>
+          {stores.length === 0 ? (
+            <div className="rounded-sm border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-xs text-[#666666]">
+              등록된 매장이 없습니다. 마스터 관리자에게 매장 등록을 요청해 주세요.
+            </div>
+          ) : (
+            <select
+              value={storeId}
+              onChange={(e) => setStoreId(e.target.value)}
+              className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm"
+            >
+              {stores.map((store) => (
+                <option key={store.id} value={store.id}>
+                  {store.name}
+                </option>
+              ))}
+            </select>
+          )}
           <input value={storePhone} onChange={(e) => setStorePhone(e.target.value)} placeholder="핸드폰번호" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <input value={storeUserId} onChange={(e) => setStoreUserId(e.target.value)} placeholder="아이디" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <input type="password" value={storePw} onChange={(e) => setStorePw(e.target.value)} placeholder="비밀번호" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
-          <button type="button" onClick={submitStoreApply} className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white">신청</button>
+          <input value={storeUserId} onChange={(e) => setStoreUserId(e.target.value)} placeholder="아이디 (영문/숫자)" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
+          <input type="password" value={storePw} onChange={(e) => setStorePw(e.target.value)} placeholder="비밀번호 (6자 이상)" className="rounded-sm border border-[#E5E5E5] px-3 py-2 text-sm" />
+          <button
+            type="button"
+            onClick={submitStoreApply}
+            disabled={isStoreApplying || stores.length === 0}
+            className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {isStoreApplying ? "신청 중…" : "신청"}
+          </button>
         </div>
       ) : null}
 
