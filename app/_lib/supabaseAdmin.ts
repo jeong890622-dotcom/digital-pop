@@ -159,12 +159,23 @@ export async function signUpAdminApplicant(params: {
       },
     },
   });
-  if (error || !data.user) {
-    const msg = (error?.message ?? "").toLowerCase();
+  if (error) {
+    const msg = (error.message ?? "").toLowerCase();
     if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) {
       return { ok: false, reason: "DUPLICATE", message: "이미 사용 중인 아이디입니다." };
     }
-    return { ok: false, reason: "UNKNOWN", message: "신청 처리 중 오류가 발생했습니다." };
+    return {
+      ok: false,
+      reason: "UNKNOWN",
+      message: `신청 처리 중 오류가 발생했습니다. (${error.message})`,
+    };
+  }
+  if (!data.user) {
+    return {
+      ok: false,
+      reason: "UNKNOWN",
+      message: "신청 처리 중 오류가 발생했습니다. (사용자 정보 없음)",
+    };
   }
   // signUp 직후 자동 로그인 방지
   await client.auth.signOut();
