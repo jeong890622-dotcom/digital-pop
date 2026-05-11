@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ProductGrid } from "./_components/customer/ProductGrid";
 import { ProductDetailSheet } from "./_components/customer/ProductDetailSheet";
@@ -35,7 +35,7 @@ import type { AddToQuotePayload, QuoteItem } from "./_types/quote";
 const QUOTE_EXPIRY_NOTICE =
   "견적서 보관 시간이 만료되어 초기화되었습니다.";
 
-export default function Home() {
+function HomeContent() {
   const searchParams = useSearchParams();
   const qrIdParam = searchParams.get("qrId");
   const storeIdParam = searchParams.get("storeId");
@@ -369,5 +369,17 @@ export default function Home() {
         onAddToQuote={handleAddToQuote}
       />
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white" />
+      }
+    >
+      <HomeContent />
+    </Suspense>
   );
 }
