@@ -8,6 +8,11 @@ import { MOCK_STORE_ADMIN_STORE_ID } from "../../_data/adminNavigation";
 import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
 import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 import { useStoreOperationRows } from "../../_lib/storeOperationStore";
+import {
+  useStoreZoneQrs,
+  type ZoneQrByStore,
+  type ZoneQrEntry,
+} from "../../_lib/storeZoneQrStore";
 import { fetchStores, type StoreRow } from "../../_lib/supabaseAdmin";
 import type { AdminRole } from "../../_types/admin";
 
@@ -26,21 +31,7 @@ type UploadSummary = {
 };
 type ZoneRowSortOption = "zone-asc" | "zone-desc" | "product-asc" | "product-desc";
 
-type ZoneQrEntry = {
-  storeId: string;
-  zone: string;
-  zoneId: string;
-  qrId: string;
-  qrUrl: string;
-  qrImageUrl: string;
-  generatedAt: string;
-  qrUrlHistory?: string[];
-};
-
-type ZoneQrByStore = Record<string, Record<string, ZoneQrEntry>>;
-
 const ZONE_MERCH_COLUMNS = ["ZONE", "제품코드", "색상"] as const;
-const QR_STORAGE_KEY = "digital-pop:store-zone-qrs";
 
 function parseRole(raw: string | null): AdminRole {
   return raw === "store" ? "store" : "master";
@@ -90,43 +81,6 @@ function zoneIdFromLabel(label: string): string {
   return `zone-${normalized.replace(/\s+/g, "-")}`;
 }
 
-function getInitialZoneQrState(): ZoneQrByStore {
-  if (typeof window === "undefined") {
-    return {};
-  }
-  const raw = window.localStorage.getItem(QR_STORAGE_KEY);
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as ZoneQrByStore;
-    if (parsed && typeof parsed === "object") {
-      const normalized: ZoneQrByStore = {};
-      for (const [storeId, byZone] of Object.entries(parsed)) {
-        normalized[storeId] = {};
-        for (const [zoneId, entry] of Object.entries(byZone ?? {})) {
-          normalized[storeId][zoneId] = normalizeZoneQrEntry(entry);
-        }
-      }
-      return normalized;
-    }
-  } catch {
-    window.localStorage.removeItem(QR_STORAGE_KEY);
-  }
-  return {};
-}
-
-function normalizeZoneQrEntry(entry: ZoneQrEntry): ZoneQrEntry {
-  const history = Array.isArray(entry.qrUrlHistory)
-    ? entry.qrUrlHistory.map((url) => url.trim()).filter(Boolean)
-    : [];
-  return {
-    ...entry,
-    qrUrl: entry.qrUrl.trim(),
-    qrUrlHistory: history,
-  };
-}
-
 export default function AdminOperationsPage() {
   const isMounted = useSyncExternalStore(
     () => () => {},
@@ -169,7 +123,7 @@ export default function AdminOperationsPage() {
   const [colorCodeDraft, setColorCodeDraft] = useState("");
   const [entryError, setEntryError] = useState<string | null>(null);
   const [deletePolicyMessage, setDeletePolicyMessage] = useState<string | null>(null);
-  const [zoneQrByStore, setZoneQrByStore] = useState<ZoneQrByStore>(getInitialZoneQrState);
+  const [zoneQrByStore, setZoneQrByStore] = useStoreZoneQrs();
   const [qrMessage, setQrMessage] = useState<string | null>(null);
   const [editingQrZoneId, setEditingQrZoneId] = useState<string | null>(null);
   const [qrUrlDraft, setQrUrlDraft] = useState("");
@@ -212,20 +166,6 @@ export default function AdminOperationsPage() {
     });
     return sorted;
   }, [zoneFilter, zoneRowSort, zoneRows]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const normalized: ZoneQrByStore = {};
-    for (const [storeId, byZone] of Object.entries(zoneQrByStore)) {
-      normalized[storeId] = {};
-      for (const [zoneId, entry] of Object.entries(byZone)) {
-        normalized[storeId][zoneId] = normalizeZoneQrEntry(entry);
-      }
-    }
-    window.localStorage.setItem(QR_STORAGE_KEY, JSON.stringify(normalized));
-  }, [zoneQrByStore]);
 
   const tabs = useMemo(
     () =>

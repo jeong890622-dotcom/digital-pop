@@ -1,6 +1,10 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
+import {
+  fetchAllStoreMerchandising,
+  replaceAllStoreMerchandising,
+} from "./supabaseStoreOperations";
 
 export type StoreOperationRow = {
   storeId: string;
@@ -11,12 +15,13 @@ export type StoreOperationRow = {
 
 export type StoreOperationRowsByStore = Record<string, StoreOperationRow[]>;
 
-const STORAGE_KEY = "digital-pop:store-operation-rows";
 const EMPTY_ROWS_BY_STORE: StoreOperationRowsByStore = {};
 
 let rowsByStoreState: StoreOperationRowsByStore = {};
 const listeners = new Set<() => void>();
 let hydrated = false;
+let hydrationInFlight: Promise<void> | null = null;
+let lastSyncError: string | null = null;
 
 function normalizeRowsByStore(
   rowsByStore: StoreOperationRowsByStore,
@@ -44,35 +49,25 @@ function notify(): void {
   }
 }
 
-function hydrateFromStorage(): void {
-  if (hydrated || typeof window === "undefined") {
-    return;
-  }
-  hydrated = true;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return;
-  }
-  try {
-    const parsed = JSON.parse(raw) as StoreOperationRowsByStore;
-    if (parsed && typeof parsed === "object") {
-      rowsByStoreState = normalizeRowsByStore(parsed);
-      persistToStorage(rowsByStoreState);
+function hydrate(): void {
+  if (hydrated || hydrationInFlight) return;
+  if (typeof window === "undefined") return;
+  hydrationInFlight = (async () => {
+    try {
+      const remote = await fetchAllStoreMerchandising();
+      rowsByStoreState = normalizeRowsByStore(remote);
+    } catch {
+      // 네트워크 실패 시 빈 상태 유지
+    } finally {
+      hydrated = true;
+      hydrationInFlight = null;
+      notify();
     }
-  } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function persistToStorage(nextRowsByStore: StoreOperationRowsByStore): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextRowsByStore));
+  })();
 }
 
 export function getStoreOperationRowsSnapshot(): StoreOperationRowsByStore {
-  hydrateFromStorage();
+  hydrate();
   return rowsByStoreState;
 }
 
@@ -83,10 +78,34 @@ export function subscribeStoreOperationRows(listener: () => void): () => void {
   };
 }
 
+export function getStoreOperationRowsLastSyncError(): string | null {
+  return lastSyncError;
+}
+
+export async function reloadStoreOperationRows(): Promise<void> {
+  const remote = await fetchAllStoreMerchandising();
+  rowsByStoreState = normalizeRowsByStore(remote);
+  hydrated = true;
+  notify();
+}
+
 export function setStoreOperationRows(nextRowsByStore: StoreOperationRowsByStore): void {
   rowsByStoreState = normalizeRowsByStore(nextRowsByStore);
-  persistToStorage(rowsByStoreState);
+  hydrated = true;
   notify();
+  void (async () => {
+    const result = await replaceAllStoreMerchandising(rowsByStoreState);
+    if (!result.ok) {
+      lastSyncError = result.message;
+      if (typeof window !== "undefined") {
+        window.alert(
+          `매장 진열 저장에 실패했습니다.\n${result.message}\n페이지를 새로고침한 뒤 다시 시도해 주세요.`,
+        );
+      }
+      return;
+    }
+    lastSyncError = null;
+  })();
 }
 
 export function useStoreOperationRows(): [
