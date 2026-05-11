@@ -1,19 +1,27 @@
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import type { Product } from "../../_data/mockProducts";
+import { buildVariantOptionsFromMasterGroupRows, type Product } from "../../_data/mockProducts";
 import { formatPrice } from "../../_lib/formatPrice";
 import {
+  buildDetailSizeOptionsFromGroupRules,
+  detailSizeSelectMatchesRule,
+  getAllowedColorKeysForProductCode,
   getInitialDetailSelection,
   getSelectedProductCode,
   isDisplayedInStore,
   getLineTotal,
+  pickPreferredDetailColorId,
   getSelectedColorImageUrl,
   getSelectedSizePrice,
   getSelectedConsumerPrice,
+  getProductMasterRowForLinkedProductCode,
 } from "../../_lib/productDetail";
 import type { AddToQuotePayload } from "../../_types/quote";
 import { OptionSelector } from "./OptionSelector";
 import { QuantityStepper } from "./QuantityStepper";
+import { useProductGroupOptionRules } from "../../_lib/productGroupOptionStore";
+import { useProductMasterRows } from "../../_lib/productMasterStore";
+import { stripSizeMillimeterSuffix } from "../../_lib/formatSizeLabel";
 
 type ProductDetailSheetProps = {
   product: Product | null;
@@ -30,71 +38,238 @@ export function ProductDetailSheet({
   onClose,
   onAddToQuote,
 }: ProductDetailSheetProps) {
-  const initialSelection = product
-    ? getInitialDetailSelection(product)
-    : { colorId: null, sizeId: null, quantity: 1 };
-  const [colorId, setColorId] = useState<string | null>(initialSelection.colorId);
-  const [sizeId, setSizeId] = useState<string | null>(initialSelection.sizeId);
-  const [quantity, setQuantity] = useState(initialSelection.quantity);
+  const [colorId, setColorId] = useState<string | null>(null);
+  const [sizeId, setSizeId] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [selectedGroupOptionId, setSelectedGroupOptionId] = useState<string | null>(null);
+  const [groupOptionRules] = useProductGroupOptionRules();
+  const [productMasterRows] = useProductMasterRows();
+
+  const masterGroupRows = useMemo(() => {
+    if (!product?.groupName) return [];
+    const g = product.groupName.trim();
+    return productMasterRows.filter((r) => r.productGroupName.trim() === g);
+  }, [product?.groupName, productMasterRows]);
+
+  const variantBundle = useMemo(
+    () =>
+      masterGroupRows.length > 0 ? buildVariantOptionsFromMasterGroupRows(masterGroupRows) : null,
+    [masterGroupRows],
+  );
+
+  /** 상품군별 옵션 관리에 활성 규칙이 있으면 상세 사이즈는 규칙의 sizeLabel만 사용 */
+  const detailSizesFromRules = useMemo(
+    () =>
+      product?.groupName
+        ? buildDetailSizeOptionsFromGroupRules(
+            groupOptionRules,
+            product.groupName,
+            productMasterRows,
+          )
+        : null,
+    [groupOptionRules, product?.groupName, productMasterRows],
+  );
+
+  /** 목록 카드와 달리 상세는 상품군 마스터 전체 색상; 사이즈는 규칙 우선 */
+  const sheetProduct = useMemo((): Product | null => {
+    if (!product) return null;
+    if (!variantBundle) return product;
+    const sizes =
+      detailSizesFromRules !== null && detailSizesFromRules.length > 0
+        ? detailSizesFromRules
+        : variantBundle.sizes;
+    const hasSize = sizes.length > 1;
+    return {
+      ...product,
+      colors: variantBundle.colors,
+      sizes,
+      hasSize,
+      skuImageMap: { ...variantBundle.skuImageMap, ...product.skuImageMap },
+    };
+  }, [product, variantBundle, detailSizesFromRules]);
+
+  useLayoutEffect(() => {
+    if (!product || !isOpen || !sheetProduct) return;
+    setSelectedGroupOptionId(null);
+    const sel = getInitialDetailSelection(sheetProduct);
+    setColorId(sel.colorId);
+    setSizeId(sel.sizeId);
+    setQuantity(1);
+  }, [isOpen, product?.id, sheetProduct]);
+
+  const currentSizeLabel = useMemo(() => {
+    if (!sheetProduct) return "Standard";
+    if (!sheetProduct.hasSize) return "Standard";
+    const selectedSize = sheetProduct.sizes.find((size) => size.id === sizeId);
+    return selectedSize?.label ?? "Standard";
+  }, [sheetProduct, sizeId]);
+  const isSingleSizeProduct = useMemo(() => {
+    if (!sheetProduct) return true;
+    return !sheetProduct.hasSize || sheetProduct.sizes.length <= 1;
+  }, [sheetProduct]);
+
+  const sizeOptionsForDisplay = useMemo(
+    () =>
+      sheetProduct?.hasSize
+        ? sheetProduct.sizes.map((size) => ({
+            ...size,
+            label: stripSizeMillimeterSuffix(size.label),
+          }))
+        : [],
+    [sheetProduct],
+  );
+
+  const availableGroupOptions = useMemo(() => {
+    if (!sheetProduct) return [];
+    return groupOptionRules
+      .filter(
+        (rule) =>
+          rule.isActive &&
+          rule.groupName.trim() === sheetProduct.groupName.trim() &&
+          (isSingleSizeProduct ||
+            detailSizeSelectMatchesRule(rule.sizeLabel, currentSizeLabel)),
+      )
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.optionName.localeCompare(b.optionName));
+  }, [currentSizeLabel, groupOptionRules, isSingleSizeProduct, sheetProduct]);
+
+  useEffect(() => {
+    if (!selectedGroupOptionId) return;
+    const stillAvailable = availableGroupOptions.some((rule) => rule.id === selectedGroupOptionId);
+    if (!stillAvailable) {
+      setSelectedGroupOptionId(null);
+    }
+  }, [availableGroupOptions, selectedGroupOptionId]);
+
+  const activeGroupOptionRule = useMemo(() => {
+    if (!selectedGroupOptionId) return null;
+    return availableGroupOptions.find((rule) => rule.id === selectedGroupOptionId) ?? null;
+  }, [availableGroupOptions, selectedGroupOptionId]);
+
+  /** 상품군 옵션 선택 시 연동 제품코드에 마스터에 실제 있는 색상코드만 허용 (없으면 null = 전체 허용) */
+  const allowedColorKeysForLinkedSku = useMemo(() => {
+    if (!activeGroupOptionRule) return null;
+    return getAllowedColorKeysForProductCode(
+      productMasterRows,
+      activeGroupOptionRule.linkedProductCode,
+    );
+  }, [activeGroupOptionRule, productMasterRows]);
+
+  const colorOptionsForDisplay = useMemo(() => {
+    if (!sheetProduct) return [];
+    const keys = allowedColorKeysForLinkedSku;
+    if (!keys) {
+      return sheetProduct.colors.map((c) => ({ ...c, disabled: false as const }));
+    }
+    return sheetProduct.colors.map((c) => ({
+      ...c,
+      disabled: !keys.has(c.id.trim().toLowerCase()),
+    }));
+  }, [sheetProduct, allowedColorKeysForLinkedSku]);
+
+  useLayoutEffect(() => {
+    if (!sheetProduct || sheetProduct.colors.length === 0) return;
+    if (!allowedColorKeysForLinkedSku) return;
+    const cid = (colorId ?? "").trim().toLowerCase();
+    if (cid && allowedColorKeysForLinkedSku.has(cid)) return;
+    const next = pickPreferredDetailColorId(sheetProduct.colors, allowedColorKeysForLinkedSku);
+    if (next != null && next !== colorId) {
+      setColorId(next);
+    }
+  }, [allowedColorKeysForLinkedSku, colorId, sheetProduct]);
+
+  const linkedProductMasterRow = useMemo(() => {
+    if (!activeGroupOptionRule) return null;
+    return getProductMasterRowForLinkedProductCode(
+      productMasterRows,
+      activeGroupOptionRule.linkedProductCode,
+      colorId,
+      currentSizeLabel,
+    );
+  }, [activeGroupOptionRule, colorId, currentSizeLabel, productMasterRows]);
+
   const selectedPrice = useMemo(() => {
-    if (!product) {
+    if (!sheetProduct) {
       return 0;
     }
-    return getSelectedSizePrice(product, sizeId);
-  }, [product, sizeId]);
+    const basePrice = getSelectedSizePrice(sheetProduct, sizeId);
+    return linkedProductMasterRow?.membershipPrice ?? basePrice;
+  }, [linkedProductMasterRow?.membershipPrice, sheetProduct, sizeId]);
   const selectedConsumerPrice = useMemo(() => {
-    if (!product) {
+    if (!sheetProduct) {
       return 0;
     }
-    return getSelectedConsumerPrice(product, sizeId);
-  }, [product, sizeId]);
+    const basePrice = getSelectedConsumerPrice(sheetProduct, sizeId);
+    return linkedProductMasterRow?.consumerPrice ?? basePrice;
+  }, [linkedProductMasterRow?.consumerPrice, sheetProduct, sizeId]);
   const selectedImageUrl = useMemo(() => {
-    if (!product) {
+    if (!sheetProduct) {
       return "";
     }
-    return getSelectedColorImageUrl(product, colorId, sizeId);
-  }, [colorId, product, sizeId]);
+    if (activeGroupOptionRule) {
+      const fromMaster = linkedProductMasterRow?.imageUrl?.trim();
+      if (fromMaster) {
+        return fromMaster;
+      }
+      const mapKey = `${activeGroupOptionRule.linkedProductCode.trim().toLowerCase()}|${(colorId ?? "").trim().toLowerCase()}`;
+      const mapped = sheetProduct.skuImageMap[mapKey];
+      if (mapped) {
+        return mapped;
+      }
+    }
+    return getSelectedColorImageUrl(sheetProduct, colorId, sizeId);
+  }, [activeGroupOptionRule, colorId, linkedProductMasterRow?.imageUrl, sheetProduct, sizeId]);
   const safeSelectedImageUrl = selectedImageUrl.trim() ? selectedImageUrl : "/window.svg";
 
   const totalPrice = useMemo(() => {
-    if (!product) {
+    if (!sheetProduct) {
       return 0;
     }
 
     return getLineTotal(selectedPrice, quantity);
-  }, [product, quantity, selectedPrice]);
+  }, [quantity, selectedPrice, sheetProduct]);
   const selectedProductCode = useMemo(() => {
-    if (!product) {
+    if (!sheetProduct) {
       return "";
     }
-    return getSelectedProductCode(product, sizeId);
-  }, [product, sizeId]);
+    return getSelectedProductCode(sheetProduct, sizeId);
+  }, [sheetProduct, sizeId]);
   const displayedInStore = useMemo(() => {
-    if (!selectedProductCode || !colorId) {
+    const targetProductCode = linkedProductMasterRow?.productCode ?? selectedProductCode;
+    const targetColorCode = linkedProductMasterRow?.colorCode ?? colorId;
+    if (!targetProductCode || !targetColorCode) {
       return false;
     }
-    return isDisplayedInStore(displayedSkuKeys, selectedProductCode, colorId);
-  }, [colorId, displayedSkuKeys, selectedProductCode]);
+    return isDisplayedInStore(displayedSkuKeys, targetProductCode, targetColorCode);
+  }, [
+    colorId,
+    displayedSkuKeys,
+    linkedProductMasterRow?.colorCode,
+    linkedProductMasterRow?.productCode,
+    selectedProductCode,
+  ]);
   const selectedSizeDetailUrl = useMemo(() => {
-    if (!product || !product.hasSize) {
+    if (!sheetProduct || !sheetProduct.hasSize) {
       return "";
     }
-    const selectedSize = product.sizes.find((size) => size.id === sizeId);
+    const selectedSize = sheetProduct.sizes.find((size) => size.id === sizeId);
     return selectedSize?.detailUrl?.trim() ?? "";
-  }, [product, sizeId]);
+  }, [sheetProduct, sizeId]);
 
   const handleAddToQuote = () => {
-    if (!product) {
+    if (!product || !sheetProduct) {
       return;
     }
+    const quoteProductCode = linkedProductMasterRow?.productCode ?? selectedProductCode;
     const colorLabel =
-      product.colors.find((color) => color.id === colorId)?.label ?? "-";
-    const sizeLabel = product.hasSize
-      ? (product.sizes.find((size) => size.id === sizeId)?.label ?? "Standard")
+      sheetProduct.colors.find((color) => color.id === colorId)?.label ?? "-";
+    const sizeLabel = sheetProduct.hasSize
+      ? stripSizeMillimeterSuffix(
+          sheetProduct.sizes.find((size) => size.id === sizeId)?.label ?? "Standard",
+        )
       : "Standard";
     onAddToQuote({
       productId: product.id,
-      productCode: selectedProductCode,
+      productCode: quoteProductCode,
       colorId,
       colorLabel,
       sizeId,
@@ -106,13 +281,21 @@ export function ProductDetailSheet({
     });
   };
 
-  if (!isOpen || !product) {
+  if (!isOpen || !product || !sheetProduct) {
     return null;
   }
 
   const detailUrl =
+    (activeGroupOptionRule
+      ? linkedProductMasterRow?.detailUrl?.trim() ||
+        productMasterRows.find(
+          (row) =>
+            row.productCode.trim().toLowerCase() ===
+            activeGroupOptionRule.linkedProductCode.trim().toLowerCase(),
+        )?.detailUrl?.trim()
+      : "") ||
     selectedSizeDetailUrl ||
-    product.detailUrl?.trim() ||
+    sheetProduct.detailUrl?.trim() ||
     "https://www.desker.co.kr/product/detail/612";
   const hasDetailUrl = detailUrl.length > 0;
 
@@ -166,19 +349,19 @@ export function ProductDetailSheet({
         </div>
 
         <div className="space-y-4 py-4">
-          {product.colors.length > 0 ? (
+          {sheetProduct.colors.length > 0 ? (
             <OptionSelector
               label="색상"
-              options={product.colors}
+              options={colorOptionsForDisplay}
               selectedId={colorId}
               onSelect={setColorId}
             />
           ) : null}
 
-          {product.hasSize ? (
+          {sheetProduct.hasSize ? (
             <OptionSelector
               label="사이즈"
-              options={product.sizes}
+              options={sizeOptionsForDisplay}
               selectedId={sizeId}
               onSelect={setSizeId}
             />
@@ -188,6 +371,20 @@ export function ProductDetailSheet({
               <p className="text-sm text-[#111111]">Standard</p>
             </section>
           )}
+
+          {availableGroupOptions.length > 0 ? (
+            <OptionSelector
+              label="상품군 옵션"
+              options={availableGroupOptions.map((rule) => ({
+                id: rule.id,
+                label: rule.optionName,
+              }))}
+              selectedId={selectedGroupOptionId}
+              onSelect={(nextId) => {
+                setSelectedGroupOptionId((prev) => (prev === nextId ? null : nextId));
+              }}
+            />
+          ) : null}
 
           {hasDetailUrl ? (
             <section>

@@ -45,14 +45,15 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
   const isMyAccountActive = pathname === "/admin/my-account";
 
   const isPasswordChangeRequired = useMemo(() => {
-    if (!state.session) {
+    const session = state.session;
+    if (!session) {
       return false;
     }
-    if (state.session.role === "master") {
-      const account = state.masterAccounts.find((item) => item.id === state.session?.accountId);
+    if (session.role === "master") {
+      const account = state.masterAccounts.find((item) => item.id === session.accountId);
       return Boolean(account?.mustChangePassword);
     }
-    const account = state.storeAccounts.find((item) => item.id === state.session.accountId);
+    const account = state.storeAccounts.find((item) => item.id === session.accountId);
     return Boolean(account?.mustChangePassword);
   }, [state]);
 

@@ -1,4 +1,5 @@
 import type { ProductOption } from "../_types/productDetail";
+import type { ProductGroupOptionRule } from "../_types/productGroupOption";
 import { INITIAL_PRODUCT_MASTER_ROWS, type ProductMasterRow } from "./mockProductMaster";
 import type { StoreOperationRow } from "../_lib/storeOperationStore";
 import { MOCK_STORES } from "./adminNavigation";
@@ -70,14 +71,194 @@ function zoneIdFromLabel(label: string): string {
   return `zone-${normalized.replace(/\s+/g, "-")}`;
 }
 
+const COLOR_PRIORITY_ORDER = ["WWWW", "MLWW", "MLFK", "FKFK", "MACFK"] as const;
+const COLOR_PRIORITY_INDEX = new Map<string, number>(
+  COLOR_PRIORITY_ORDER.map((code, index) => [code, index]),
+);
+
+function sortColorOptionsByPriority<T extends { id: string; label: string }>(options: T[]): T[] {
+  return [...options].sort((a, b) => {
+    const aCode = a.id.trim().toUpperCase();
+    const bCode = b.id.trim().toUpperCase();
+    const aPriority = COLOR_PRIORITY_INDEX.get(aCode);
+    const bPriority = COLOR_PRIORITY_INDEX.get(bCode);
+
+    if (aPriority !== undefined && bPriority !== undefined) {
+      return aPriority - bPriority;
+    }
+    if (aPriority !== undefined) return -1;
+    if (bPriority !== undefined) return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+function parsePrimarySizeNumber(label: string): number | null {
+  const normalized = label.trim().toUpperCase();
+  if (!normalized) return null;
+  const widthMatch = normalized.match(/W\s*([0-9]+)/);
+  if (widthMatch?.[1]) {
+    const width = Number(widthMatch[1]);
+    return Number.isFinite(width) ? width : null;
+  }
+  const firstNumberMatch = normalized.match(/([0-9]+)/);
+  if (!firstNumberMatch?.[1]) return null;
+  const value = Number(firstNumberMatch[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+/** W1200 등 라벨의 폭 숫자 기준 오름차순 (상세·카탈로그 공통) */
+export function sortSizeOptionsByPrimaryNumber<T extends { label: string }>(options: T[]): T[] {
+  return [...options].sort((a, b) => {
+    const aValue = parsePrimarySizeNumber(a.label);
+    const bValue = parsePrimarySizeNumber(b.label);
+    if (aValue !== null && bValue !== null && aValue !== bValue) {
+      return aValue - bValue;
+    }
+    if (aValue !== null && bValue === null) return -1;
+    if (aValue === null && bValue !== null) return 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+/**
+ * 카탈로그·상세 옵션 묶음 기준.
+ * 상품군 관리에서 상품군명은 유일하며, 사용자 노출도 명칭 중심이므로 묶음 키는 상품군명만 사용한다.
+ * (내부 저장용 productGroupCode는 존속 — 존 추정 등에 사용)
+ */
+function masterListingGroupKey(row: ProductMasterRow): string {
+  return row.productGroupName.trim();
+}
+
+function normalizedCatalogSizeKey(sizeLabel: string): string {
+  const s = sizeLabel.trim();
+  return (s || "Standard").toLowerCase();
+}
+
+/**
+ * 상품군별 옵션 관리에서 활성 규칙으로 등록된 사이즈만 카탈로그 옵션에 쓴다.
+ * 해당 상품군에 활성 규칙이 하나도 없으면 null(마스터 전체 사이즈 유지).
+ */
+function allowedCatalogSizeKeysFromRules(
+  rules: ProductGroupOptionRule[] | undefined,
+  groupName: string,
+): Set<string> | null {
+  if (!rules?.length) return null;
+  const g = groupName.trim();
+  const keys = new Set<string>();
+  for (const r of rules) {
+    if (!r.isActive) continue;
+    if (r.groupName.trim() !== g) continue;
+    keys.add(normalizedCatalogSizeKey(r.sizeLabel));
+  }
+  return keys.size > 0 ? keys : null;
+}
+
+function masterRowToSizeOption(row: ProductMasterRow, sizeOptionId: string): ProductOption {
+  const label = row.sizeLabel.trim() || "Standard";
+  return {
+    id: sizeOptionId,
+    label,
+    productCode: row.productCode,
+    optionCode: `${row.productCode}-OPT`,
+    price: row.membershipPrice,
+    detailUrl: row.detailUrl || undefined,
+    consumerPrice: row.consumerPrice,
+  };
+}
+
+function buildSizesForListingFromMasterRows(
+  groupRows: ProductMasterRow[],
+  groupName: string,
+  groupOptionRules: ProductGroupOptionRule[] | undefined,
+  sizeOptionIdForRow: (row: ProductMasterRow) => string,
+): { sizes: ProductOption[]; hasSize: boolean } {
+  const allowedKeys = allowedCatalogSizeKeysFromRules(groupOptionRules, groupName);
+
+  const collect = (applyRuleFilter: boolean): Map<string, ProductOption> => {
+    const sizeMap = new Map<string, ProductOption>();
+    for (const row of groupRows) {
+      if (
+        applyRuleFilter &&
+        allowedKeys &&
+        !allowedKeys.has(normalizedCatalogSizeKey(row.sizeLabel))
+      ) {
+        continue;
+      }
+      const mapKey = row.sizeLabel.trim() || "Standard";
+      if (!sizeMap.has(mapKey)) {
+        sizeMap.set(mapKey, masterRowToSizeOption(row, sizeOptionIdForRow(row)));
+      }
+    }
+    return sizeMap;
+  };
+
+  let sizeMap = collect(allowedKeys != null);
+  if (allowedKeys && sizeMap.size === 0) {
+    sizeMap = collect(false);
+  }
+
+  const sizes = sortSizeOptionsByPrimaryNumber([...sizeMap.values()]);
+  const hasSize = sizes.length > 1;
+  return { sizes, hasSize };
+}
+
+/**
+ * 사용자 상품 상세: 동일 상품군명 마스터 행 전체에서 색상·사이즈·SKU 이미지 맵 (규칙 필터 없음).
+ * 목록 카드는 매장 운영 SKU 기준이지만, 상세는 상품군 단위로 모두 노출할 때 사용한다.
+ */
+export function buildVariantOptionsFromMasterGroupRows(groupedRows: ProductMasterRow[]): {
+  colors: ProductOption[];
+  sizes: ProductOption[];
+  hasSize: boolean;
+  skuImageMap: Record<string, string>;
+} {
+  if (groupedRows.length === 0) {
+    return { colors: [], sizes: [], hasSize: false, skuImageMap: {} };
+  }
+
+  const sizeMap = new Map<string, ProductOption>();
+  for (const row of groupedRows) {
+    const mapKey = row.sizeLabel.trim() || "Standard";
+    if (!sizeMap.has(mapKey)) {
+      sizeMap.set(
+        mapKey,
+        masterRowToSizeOption(row, `s-${row.productCode.trim().toLowerCase()}`),
+      );
+    }
+  }
+  const sizes = sortSizeOptionsByPrimaryNumber([...sizeMap.values()]);
+  const hasSize = sizes.length > 1;
+
+  const colorMap = new Map<string, ProductOption>();
+  for (const row of groupedRows) {
+    if (!colorMap.has(row.colorCode)) {
+      colorMap.set(row.colorCode, {
+        id: row.colorCode,
+        label: row.colorCode,
+        imageUrl: row.imageUrl,
+      });
+    }
+  }
+  const colors = sortColorOptionsByPriority([...colorMap.values()]);
+
+  const skuImageMap: Record<string, string> = {};
+  for (const row of groupedRows) {
+    skuImageMap[`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`] =
+      row.imageUrl;
+  }
+
+  return { colors, sizes, hasSize, skuImageMap };
+}
+
 function buildProductsFromMasterRows(
   rows: ProductMasterRow[],
   storeId: string,
   merchandisingRows: StoreOperationRow[] = [],
+  groupOptionRules?: ProductGroupOptionRule[],
 ): Product[] {
   if (merchandisingRows.length > 0) {
     const rowsByProductCode = new Map<string, ProductMasterRow[]>();
-    const rowsByGroupCode = new Map<string, ProductMasterRow[]>();
+    const rowsByListingGroupKey = new Map<string, ProductMasterRow[]>();
     const rowByCodeColor = new Map<string, ProductMasterRow>();
     for (const row of rows) {
       const codeKey = row.productCode.trim().toLowerCase();
@@ -85,9 +266,10 @@ function buildProductsFromMasterRows(
       codeBucket.push(row);
       rowsByProductCode.set(codeKey, codeBucket);
 
-      const groupBucket = rowsByGroupCode.get(row.productGroupCode.trim()) ?? [];
+      const listKey = masterListingGroupKey(row);
+      const groupBucket = rowsByListingGroupKey.get(listKey) ?? [];
       groupBucket.push(row);
-      rowsByGroupCode.set(row.productGroupCode.trim(), groupBucket);
+      rowsByListingGroupKey.set(listKey, groupBucket);
 
       rowByCodeColor.set(`${codeKey}|${row.colorCode.trim().toLowerCase()}`, row);
     }
@@ -115,10 +297,21 @@ function buildProductsFromMasterRows(
         rowByCodeColor.get(
           `${merchRow.productCode.trim().toLowerCase()}|${merchRow.colorCode.trim().toLowerCase()}`,
         ) ?? codeRows[0]!;
-      const groupRows = rowsByGroupCode.get(base.productGroupCode.trim()) ?? codeRows;
+      const groupRows =
+        rowsByListingGroupKey.get(masterListingGroupKey(base)) ?? codeRows;
+
+      /** 매장 운영으로 노출된 SKU(제품코드·색상)에 해당하는 마스터 행만 — 동일 상품군 타 코드 사이즈·색상 제외 */
+      const codeKey = merchRow.productCode.trim().toLowerCase();
+      const colorKey = merchRow.colorCode.trim().toLowerCase();
+      let rowsForSizes = (rowsByProductCode.get(codeKey) ?? []).filter(
+        (r) => r.colorCode.trim().toLowerCase() === colorKey,
+      );
+      if (rowsForSizes.length === 0) {
+        rowsForSizes = [base];
+      }
 
       const colorMap = new Map<string, ProductOption>();
-      for (const row of groupRows) {
+      for (const row of rowsForSizes) {
         if (!colorMap.has(row.colorCode)) {
           colorMap.set(row.colorCode, {
             id: row.colorCode,
@@ -127,24 +320,15 @@ function buildProductsFromMasterRows(
           });
         }
       }
-      const colors = [...colorMap.values()];
+      const colors = sortColorOptionsByPriority([...colorMap.values()]);
 
-      const sizeMap = new Map<string, ProductOption>();
-      for (const row of groupRows) {
-        if (!sizeMap.has(row.sizeLabel)) {
-          sizeMap.set(row.sizeLabel, {
-            id: `s-${base.productGroupCode.toLowerCase()}-${row.sizeLabel.toLowerCase().replace(/\s+/g, "-")}`,
-            label: row.sizeLabel,
-            productCode: row.productCode,
-            optionCode: `${row.productCode}-OPT`,
-            price: row.membershipPrice,
-            detailUrl: row.detailUrl || undefined,
-            consumerPrice: row.consumerPrice,
-          });
-        }
-      }
-      const sizes = [...sizeMap.values()];
-      const hasSize = sizes.length > 1;
+      const listingKeySlug = masterListingGroupKey(base).replace(/\s+/g, "-").toLowerCase();
+      const { sizes, hasSize } = buildSizesForListingFromMasterRows(
+        rowsForSizes,
+        base.productGroupName,
+        groupOptionRules,
+        (row) => `s-${listingKeySlug}-${row.sizeLabel.toLowerCase().replace(/\s+/g, "-")}`,
+      );
       const skuImageMap: Record<string, string> = {};
       for (const row of groupRows) {
         skuImageMap[`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`] = row.imageUrl;
@@ -158,7 +342,7 @@ function buildProductsFromMasterRows(
         groupName: base.productGroupName,
         code: base.productCode,
         name: base.productName,
-        size: base.sizeLabel || "Standard",
+        size: hasSize ? sizes.map((s) => s.label).join(" / ") : base.sizeLabel || "Standard",
         consumerPrice: base.consumerPrice,
         membershipPrice: base.membershipPrice,
         imageUrl: base.imageUrl,
@@ -173,54 +357,48 @@ function buildProductsFromMasterRows(
     });
   }
 
-  const groupCodeByProductCode = new Map<string, string>();
+  const listingGroupKeyByProductCode = new Map<string, string>();
   for (const row of rows) {
-    groupCodeByProductCode.set(row.productCode.trim().toLowerCase(), row.productGroupCode.trim());
+    listingGroupKeyByProductCode.set(
+      row.productCode.trim().toLowerCase(),
+      masterListingGroupKey(row),
+    );
   }
 
-  const zonesByGroupCode = new Map<string, Set<string>>();
+  const zonesByListingGroupKey = new Map<string, Set<string>>();
   for (const merchandisingRow of merchandisingRows) {
-    const mappedGroupCode = groupCodeByProductCode.get(
+    const mappedListingKey = listingGroupKeyByProductCode.get(
       merchandisingRow.productCode.trim().toLowerCase(),
     );
-    if (!mappedGroupCode) continue;
-    const set = zonesByGroupCode.get(mappedGroupCode) ?? new Set<string>();
+    if (!mappedListingKey) continue;
+    const set = zonesByListingGroupKey.get(mappedListingKey) ?? new Set<string>();
     set.add(merchandisingRow.zone);
-    zonesByGroupCode.set(mappedGroupCode, set);
+    zonesByListingGroupKey.set(mappedListingKey, set);
   }
 
   const hasMerchandising = merchandisingRows.length > 0;
   const grouped = new Map<string, ProductMasterRow[]>();
   for (const row of rows) {
-    if (hasMerchandising && !zonesByGroupCode.has(row.productGroupCode.trim())) {
+    const rowListingKey = masterListingGroupKey(row);
+    if (hasMerchandising && !zonesByListingGroupKey.has(rowListingKey)) {
       continue;
     }
-    const bucket = grouped.get(row.productGroupCode.trim()) ?? [];
+    const bucket = grouped.get(rowListingKey) ?? [];
     bucket.push(row);
-    grouped.set(row.productGroupCode.trim(), bucket);
+    grouped.set(rowListingKey, bucket);
   }
 
   let seq = 1;
   const products: Product[] = [];
-  for (const [groupCode, groupedRows] of grouped.entries()) {
+  for (const [listingGroupKey, groupedRows] of grouped.entries()) {
     const first = groupedRows[0]!;
 
-    const sizeMap = new Map<string, ProductOption>();
-    for (const row of groupedRows) {
-      if (!sizeMap.has(row.sizeLabel)) {
-        sizeMap.set(row.sizeLabel, {
-          id: `s-${row.productCode.trim().toLowerCase()}`,
-          label: row.sizeLabel,
-          productCode: row.productCode,
-          optionCode: `${row.productCode}-OPT`,
-          price: row.membershipPrice,
-          detailUrl: row.detailUrl || undefined,
-          consumerPrice: row.consumerPrice,
-        });
-      }
-    }
-    const sizes = [...sizeMap.values()];
-    const hasSize = sizes.length > 1;
+    const { sizes, hasSize } = buildSizesForListingFromMasterRows(
+      groupedRows,
+      first.productGroupName,
+      groupOptionRules,
+      (row) => `s-${row.productCode.trim().toLowerCase()}`,
+    );
     const colorMap = new Map<string, ProductOption>();
     for (const row of groupedRows) {
       if (!colorMap.has(row.colorCode)) {
@@ -231,7 +409,7 @@ function buildProductsFromMasterRows(
         });
       }
     }
-    const colors = [...colorMap.values()];
+    const colors = sortColorOptionsByPriority([...colorMap.values()]);
     let minPriceRow = first;
     for (const row of groupedRows) {
       if (row.membershipPrice < minPriceRow.membershipPrice) {
@@ -241,25 +419,26 @@ function buildProductsFromMasterRows(
     const membershipPrice = minPriceRow.membershipPrice;
     const consumerPrice = minPriceRow.consumerPrice;
     const representativeSizeLabel = hasSize
-      ? [...new Set(groupedRows.map((row) => row.sizeLabel))].join(" / ")
+      ? sizes.map((s) => s.label).join(" / ")
       : "Standard";
 
-    const mappedZones = zonesByGroupCode.get(groupCode);
+    const mappedZones = zonesByListingGroupKey.get(listingGroupKey);
     const zoneIds =
       mappedZones && mappedZones.size > 0
         ? [...mappedZones].map(zoneIdFromLabel).filter(Boolean)
-        : [zoneIdByGroupCode(groupCode)];
+        : [zoneIdByGroupCode(first.productGroupCode)];
 
+    const listingIdSlug = listingGroupKey.replace(/\s+/g, "_").slice(0, 96);
     for (const zoneId of zoneIds) {
       const skuImageMap: Record<string, string> = {};
       for (const row of groupedRows) {
         skuImageMap[`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`] = row.imageUrl;
       }
       products.push({
-        id: `p-${String(seq++).padStart(3, "0")}-${zoneId}-${groupCode}`,
+        id: `p-${String(seq++).padStart(3, "0")}-${zoneId}-${listingIdSlug}`,
         storeId,
         zoneId,
-        groupCode,
+        groupCode: first.productGroupCode,
         groupName: first.productGroupName,
         code: first.productCode, // Size 선택 시 실제 productCode는 sizes 옵션에서 결정됨
         name: first.productGroupName,
@@ -338,6 +517,7 @@ export function buildStoreCatalogFromProductMasterRows(
   rows: ProductMasterRow[],
   merchandisingRows: StoreOperationRow[] = [],
   storeId: string = mockCatalog.storeId,
+  groupOptionRules?: ProductGroupOptionRule[],
 ): StoreCatalog {
   const normalizedMerchandisingRows = merchandisingRows
     .map((row) => ({
@@ -397,7 +577,12 @@ export function buildStoreCatalogFromProductMasterRows(
         ),
       ];
 
-  const products = buildProductsFromMasterRows(rows, storeId, normalizedMerchandisingRows).filter((product) =>
+  const products = buildProductsFromMasterRows(
+    rows,
+    storeId,
+    normalizedMerchandisingRows,
+    groupOptionRules,
+  ).filter((product) =>
     hasMerchandising
       ? displayedProductCodeSet.has(product.code.toLowerCase()) && zoneMap.has(product.zoneId)
       : true,

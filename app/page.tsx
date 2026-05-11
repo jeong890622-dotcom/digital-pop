@@ -12,6 +12,7 @@ import { StoreHeader } from "./_components/customer/StoreHeader";
 import { ALL_ZONE_VALUE, ZoneFilterSelect } from "./_components/customer/ZoneFilterSelect";
 import { buildStoreCatalogFromProductMasterRows } from "./_data/mockProducts";
 import { formatPrice } from "./_lib/formatPrice";
+import { useProductGroupOptionRules } from "./_lib/productGroupOptionStore";
 import { useProductMasterRows } from "./_lib/productMasterStore";
 import { useStoreOperationRows } from "./_lib/storeOperationStore";
 import { filterProductsByZone, searchProductsInStore } from "./_lib/productFilters";
@@ -41,10 +42,17 @@ export default function Home() {
   const zoneIdParam = searchParams.get("zoneId");
   const areaIdParam = searchParams.get("areaId");
   const [productMasterRows] = useProductMasterRows();
+  const [groupOptionRules] = useProductGroupOptionRules();
   const [operationRowsByStore] = useStoreOperationRows();
   const baseCatalog = useMemo(
-    () => buildStoreCatalogFromProductMasterRows(productMasterRows, [], "store-seoul-gangnam"),
-    [productMasterRows],
+    () =>
+      buildStoreCatalogFromProductMasterRows(
+        productMasterRows,
+        [],
+        "store-seoul-gangnam",
+        groupOptionRules,
+      ),
+    [productMasterRows, groupOptionRules],
   );
   const matchedQr = baseCatalog.qrEntries.find((entry) => entry.id === qrIdParam);
   const hasCustomQrRoutingParams = Boolean(storeIdParam && (zoneIdParam || areaIdParam));
@@ -100,8 +108,9 @@ export default function Home() {
         productMasterRows,
         merchandisingRowsForStore,
         resolvedStoreId,
+        groupOptionRules,
       ),
-    [merchandisingRowsForStore, productMasterRows, resolvedStoreId],
+    [groupOptionRules, merchandisingRowsForStore, productMasterRows, resolvedStoreId],
   );
   const isAllZoneParam = effectiveZoneParam === ALL_ZONE_VALUE;
   const zoneExists = catalog.zones.some((zone) => zone.id === effectiveZoneParam);
@@ -237,6 +246,17 @@ export default function Home() {
   const stickyQuantity = isQuoteHydrated ? quoteTotalQuantity : 0;
   const stickyAmountLabel = isQuoteHydrated ? quoteTotalAmountLabel : "0원";
   const stickyIsEmpty = !isQuoteHydrated || quoteItems.length === 0;
+  const productNameByCode = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const row of productMasterRows) {
+      const codeKey = row.productCode.trim().toLowerCase();
+      if (!codeKey) continue;
+      if (!map[codeKey]) {
+        map[codeKey] = row.productName.trim() || row.productGroupName.trim();
+      }
+    }
+    return map;
+  }, [productMasterRows]);
 
   const handleAddToQuote = (payload: AddToQuotePayload) => {
     setQuoteItems((prev) => addOrMergeQuoteItem(prev, payload));
@@ -333,6 +353,7 @@ export default function Home() {
       <QuoteDetailPanel
         isOpen={isQuotePanelOpen}
         items={quoteItems}
+        productNameByCode={productNameByCode}
         totalAmount={quoteTotalAmount}
         onClose={handleCloseQuotePanel}
         onRemoveItem={handleRemoveQuoteItem}

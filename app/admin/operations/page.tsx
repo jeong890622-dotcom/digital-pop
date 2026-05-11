@@ -9,6 +9,7 @@ import {
   type MockStore,
 } from "../../_data/adminNavigation";
 import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
+import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 import { useStoreOperationRows } from "../../_lib/storeOperationStore";
 import type { AdminRole } from "../../_types/admin";
 
@@ -35,6 +36,7 @@ type ZoneQrEntry = {
   qrUrl: string;
   qrImageUrl: string;
   generatedAt: string;
+  qrUrlHistory?: string[];
 };
 
 type ZoneQrByStore = Record<string, Record<string, ZoneQrEntry>>;
@@ -73,15 +75,6 @@ function splitUploadLine(line: string): string[] {
   return line.split(",").map((cell) => cell.trim());
 }
 
-function readTextFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("파일 읽기에 실패했습니다."));
-    reader.readAsText(file, "utf-8");
-  });
-}
-
 function downloadTemplate(filename: string, columns: readonly string[]): void {
   const bom = "\uFEFF";
   const header = columns.join(",");
@@ -110,12 +103,30 @@ function getInitialZoneQrState(): ZoneQrByStore {
   try {
     const parsed = JSON.parse(raw) as ZoneQrByStore;
     if (parsed && typeof parsed === "object") {
-      return parsed;
+      const normalized: ZoneQrByStore = {};
+      for (const [storeId, byZone] of Object.entries(parsed)) {
+        normalized[storeId] = {};
+        for (const [zoneId, entry] of Object.entries(byZone ?? {})) {
+          normalized[storeId][zoneId] = normalizeZoneQrEntry(entry);
+        }
+      }
+      return normalized;
     }
   } catch {
     window.localStorage.removeItem(QR_STORAGE_KEY);
   }
   return {};
+}
+
+function normalizeZoneQrEntry(entry: ZoneQrEntry): ZoneQrEntry {
+  const history = Array.isArray(entry.qrUrlHistory)
+    ? entry.qrUrlHistory.map((url) => url.trim()).filter(Boolean)
+    : [];
+  return {
+    ...entry,
+    qrUrl: entry.qrUrl.trim(),
+    qrUrlHistory: history,
+  };
 }
 
 export default function AdminOperationsPage() {
@@ -152,6 +163,8 @@ export default function AdminOperationsPage() {
   const [deletePolicyMessage, setDeletePolicyMessage] = useState<string | null>(null);
   const [zoneQrByStore, setZoneQrByStore] = useState<ZoneQrByStore>(getInitialZoneQrState);
   const [qrMessage, setQrMessage] = useState<string | null>(null);
+  const [editingQrZoneId, setEditingQrZoneId] = useState<string | null>(null);
+  const [qrUrlDraft, setQrUrlDraft] = useState("");
   const [zoneFilter, setZoneFilter] = useState("all");
   const [zoneRowSort, setZoneRowSort] = useState<ZoneRowSortOption>("zone-asc");
 
@@ -196,7 +209,14 @@ export default function AdminOperationsPage() {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem(QR_STORAGE_KEY, JSON.stringify(zoneQrByStore));
+    const normalized: ZoneQrByStore = {};
+    for (const [storeId, byZone] of Object.entries(zoneQrByStore)) {
+      normalized[storeId] = {};
+      for (const [zoneId, entry] of Object.entries(byZone)) {
+        normalized[storeId][zoneId] = normalizeZoneQrEntry(entry);
+      }
+    }
+    window.localStorage.setItem(QR_STORAGE_KEY, JSON.stringify(normalized));
   }, [zoneQrByStore]);
 
   const tabs = useMemo(
@@ -234,7 +254,7 @@ export default function AdminOperationsPage() {
       setUploadSummary(null);
       return;
     }
-    const text = await readTextFile(uploadFile).catch(() => "");
+    const text = await readUploadTextFile(uploadFile).catch(() => "");
     const lines = text
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -418,6 +438,7 @@ export default function AdminOperationsPage() {
       qrUrl,
       qrImageUrl,
       generatedAt: new Date().toISOString(),
+      qrUrlHistory: [],
     };
     setZoneQrByStore((prev) => ({
       ...prev,
@@ -452,6 +473,65 @@ export default function AdminOperationsPage() {
     } catch {
       setQrMessage("QR 이미지 다운로드에 실패했습니다.");
     }
+  };
+
+  const startEditQrUrl = (entry: ZoneQrEntry) => {
+    setEditingQrZoneId(entry.zoneId);
+    setQrUrlDraft(entry.qrUrl);
+    setQrMessage(null);
+  };
+
+  const cancelEditQrUrl = () => {
+    setEditingQrZoneId(null);
+    setQrUrlDraft("");
+  };
+
+  const saveQrUrlOnly = (entry: ZoneQrEntry) => {
+    const nextUrl = qrUrlDraft.trim();
+    if (!nextUrl) {
+      setQrMessage("QR URL을 입력해 주세요.");
+      return;
+    }
+    setZoneQrByStore((prev) => ({
+      ...prev,
+      [selectedStoreId]: {
+        ...(prev[selectedStoreId] ?? {}),
+        [entry.zoneId]: {
+          ...entry,
+          qrUrl: nextUrl,
+          // 요구사항: QR 이미지는 유지하고 URL만 변경
+          qrImageUrl: entry.qrImageUrl,
+          qrUrlHistory:
+            nextUrl !== entry.qrUrl
+              ? [entry.qrUrl, ...(entry.qrUrlHistory ?? [])]
+              : (entry.qrUrlHistory ?? []),
+        },
+      },
+    }));
+    setQrMessage("QR URL을 수정했습니다. QR 이미지는 유지됩니다.");
+    cancelEditQrUrl();
+  };
+
+  const restorePreviousQrUrl = (entry: ZoneQrEntry) => {
+    const history = entry.qrUrlHistory ?? [];
+    const previousUrl = history[0];
+    if (!previousUrl) {
+      setQrMessage("복원할 이전 URL이 없습니다.");
+      return;
+    }
+    setZoneQrByStore((prev) => ({
+      ...prev,
+      [selectedStoreId]: {
+        ...(prev[selectedStoreId] ?? {}),
+        [entry.zoneId]: {
+          ...entry,
+          qrUrl: previousUrl,
+          // 복원 직후에는 다시 수정/저장하기 전까지 복원 버튼을 비활성화한다.
+          qrUrlHistory: [],
+        },
+      },
+    }));
+    setQrMessage("이전 QR URL로 복원했습니다.");
   };
 
   const resetStoreAccountPassword = (accountId: string) => {
@@ -809,16 +889,61 @@ export default function AdminOperationsPage() {
                           <td className="px-3 py-3 align-top">
                             {existingEntry ? (
                               <div className="space-y-2">
-                                <code className="block rounded-sm bg-[#F5F5F5] px-2 py-1 text-xs text-[#666666]">
-                                  {existingEntry.qrUrl}
-                                </code>
-                                <button
-                                  type="button"
-                                  onClick={() => copyQrUrl(existingEntry.qrUrl)}
-                                  className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
-                                >
-                                  복사
-                                </button>
+                                {editingQrZoneId === existingEntry.zoneId ? (
+                                  <>
+                                    <input
+                                      value={qrUrlDraft}
+                                      onChange={(e) => setQrUrlDraft(e.target.value)}
+                                      className="w-full rounded-sm border border-[#E5E5E5] bg-white px-2 py-1 text-xs text-[#111111]"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => saveQrUrlOnly(existingEntry)}
+                                        className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                                      >
+                                        저장
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={cancelEditQrUrl}
+                                        className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#666666] hover:text-[#111111]"
+                                      >
+                                        취소
+                                      </button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <code className="block rounded-sm bg-[#F5F5F5] px-2 py-1 text-xs text-[#666666]">
+                                      {existingEntry.qrUrl}
+                                    </code>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => copyQrUrl(existingEntry.qrUrl)}
+                                        className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                                      >
+                                        복사
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditQrUrl(existingEntry)}
+                                        className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                                      >
+                                        URL 수정
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => restorePreviousQrUrl(existingEntry)}
+                                        disabled={!existingEntry.qrUrlHistory?.[0]}
+                                        className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
+                                      >
+                                        이전 URL 복원
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             ) : (
                               <span className="text-xs text-[#888888]">아직 생성되지 않았습니다.</span>

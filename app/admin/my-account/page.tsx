@@ -8,11 +8,12 @@ export default function MyAccountPage() {
   const [message, setMessage] = useState<string | null>(null);
 
   const me = useMemo(() => {
-    if (!state.session) {
+    const session = state.session;
+    if (!session) {
       return null;
     }
-    if (state.session.role === "master") {
-      const account = state.masterAccounts.find((item) => item.id === state.session?.accountId);
+    if (session.role === "master") {
+      const account = state.masterAccounts.find((item) => item.id === session.accountId);
       if (!account) return null;
       return {
         role: "master" as const,
@@ -27,7 +28,7 @@ export default function MyAccountPage() {
       };
     }
 
-    const account = state.storeAccounts.find((item) => item.id === state.session.accountId);
+    const account = state.storeAccounts.find((item) => item.id === session.accountId);
     if (!account) return null;
     return {
       role: "store" as const,

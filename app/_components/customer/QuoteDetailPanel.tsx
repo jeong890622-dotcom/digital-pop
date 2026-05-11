@@ -5,6 +5,7 @@ import { QuantityStepper } from "./QuantityStepper";
 type QuoteDetailPanelProps = {
   isOpen: boolean;
   items: QuoteItem[];
+  productNameByCode?: Record<string, string>;
   totalAmount: number;
   onClose: () => void;
   onRemoveItem: (index: number) => void;
@@ -15,6 +16,7 @@ type QuoteDetailPanelProps = {
 export function QuoteDetailPanel({
   isOpen,
   items,
+  productNameByCode,
   totalAmount,
   onClose,
   onRemoveItem,
@@ -72,7 +74,7 @@ export function QuoteDetailPanel({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-[#111111]">
-                          {item.productName}
+                          {productNameByCode?.[item.productCode.trim().toLowerCase()] ?? item.productName}
                         </p>
                         <p className="mt-2 text-xs leading-relaxed text-[#666666]">
                           색상: {item.colorLabel} · 사이즈: {item.sizeLabel}

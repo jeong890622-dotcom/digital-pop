@@ -19,15 +19,23 @@ export function OptionSelector({
       <div className="flex flex-wrap gap-2">
         {options.map((option) => {
           const isSelected = option.id === selectedId;
+          const isDisabled = option.disabled === true;
           return (
             <button
               key={option.id}
               type="button"
-              onClick={() => onSelect(option.id)}
+              disabled={isDisabled}
+              aria-disabled={isDisabled}
+              onClick={() => {
+                if (isDisabled) return;
+                onSelect(option.id);
+              }}
               className={`rounded-sm border px-3 py-1.5 text-xs ${
-                isSelected
-                  ? "border-[#111111] text-[#111111]"
-                  : "border-[#E5E5E5] text-[#666666]"
+                isDisabled
+                  ? "cursor-not-allowed border-[#E5E5E5] text-[#B0B0B0]"
+                  : isSelected
+                    ? "border-[#111111] text-[#111111]"
+                    : "border-[#E5E5E5] text-[#666666]"
               }`}
             >
               {option.label}

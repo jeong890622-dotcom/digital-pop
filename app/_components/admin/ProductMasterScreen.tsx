@@ -1,12 +1,21 @@
 "use client";
 
+import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type { ProductMasterRow } from "../../_data/mockProductMaster";
+import type { ProductGroupRegistryEntry } from "../../_types/productGroupRegistry";
 import { formatPrice } from "../../_lib/formatPrice";
+import {
+  findRegistryByNormalizedName,
+  findRegistryExactMatch,
+  resolveRegistryUploadFailureReason,
+  resolveRegistryUploadFailureReasonByName,
+  useProductGroupRegistry,
+} from "../../_lib/productGroupRegistryStore";
 import { useProductMasterRows } from "../../_lib/productMasterStore";
+import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 
 type FilterState = {
-  productGroupCode: string;
   productGroupName: string;
   productName: string;
   productCode: string;
@@ -68,7 +77,6 @@ type UploadFailureDetail = {
 type FullUploadMode = "overwrite" | "append" | "upsert";
 
 const FULL_UPLOAD_COLUMNS = [
-  "상품군코드",
   "상품군명",
   "제품명",
   "제품코드",
@@ -80,14 +88,38 @@ const FULL_UPLOAD_COLUMNS = [
   "상세 URL",
 ] as const;
 
-const LEGACY_FULL_UPLOAD_COLUMN_COUNT = 9;
+type FullUploadLayout = "name9" | "code10" | "code9";
+
+function detectFullUploadLayout(header: string[] | undefined, sampleBody: string[]): FullUploadLayout | null {
+  const len = sampleBody.length;
+  if (header?.[0] === "상품군명") {
+    return len === 9 ? "name9" : null;
+  }
+  if (header?.[0] === "상품군코드") {
+    if (header.includes("소비자가")) return len === 10 ? "code10" : null;
+    return len === 9 ? "code9" : null;
+  }
+  if (len === 10) return "code10";
+  if (len === 9) {
+    return /^PG-/i.test((sampleBody[0] ?? "").trim()) ? "code9" : "name9";
+  }
+  return null;
+}
+
+function expectedColumnCount(layout: FullUploadLayout): number {
+  return layout === "code10" ? 10 : 9;
+}
+
+function trimCells(cells: string[]): string[] {
+  return cells.map((c) => c.trim());
+}
 
 const PRICE_UPLOAD_COLUMNS = ["제품코드", "소비자가", "멤버십 가격"] as const;
 const LEGACY_PRICE_UPLOAD_COLUMN_COUNT = 2;
 const PAGE_SIZE = 20;
 
 function sortRows(a: ProductMasterRow, b: ProductMasterRow): number {
-  const g = a.productGroupCode.localeCompare(b.productGroupCode);
+  const g = a.productGroupName.localeCompare(b.productGroupName, "ko");
   if (g !== 0) return g;
   const p = a.productCode.localeCompare(b.productCode);
   if (p !== 0) return p;
@@ -111,15 +143,6 @@ function parseMembershipPrice(raw: string): number | null {
     return null;
   }
   return numeric;
-}
-
-function readTextFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("파일을 읽는 중 오류가 발생했습니다."));
-    reader.readAsText(file, "utf-8");
-  });
 }
 
 function parseDelimitedLines(rawText: string): string[][] {
@@ -152,9 +175,9 @@ function csvEscape(value: string): string {
 
 export function ProductMasterScreen() {
   const [rows, setRows] = useProductMasterRows();
+  const [registryEntries] = useProductGroupRegistry();
   const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
   const [filters, setFilters] = useState<FilterState>({
-    productGroupCode: "",
     productGroupName: "",
     productName: "",
     productCode: "",
@@ -169,6 +192,12 @@ export function ProductMasterScreen() {
   const [colorOptions, setColorOptions] = useState<ColorOptionDraft[]>([emptyColorOption("co-1")]);
   const [nextColorOptionSeq, setNextColorOptionSeq] = useState(2);
   const [formError, setFormError] = useState<string | null>(null);
+  /** 레지스트리 선택값(id). 수정 시 마스터 행이 레지스트리에 없으면 빈 문자열 */
+  const [registrySelectId, setRegistrySelectId] = useState("");
+  /** 상품군 콤보: 검색어·목록 열림·키보드 하이라이트 */
+  const [registryComboQuery, setRegistryComboQuery] = useState("");
+  const [registryComboOpen, setRegistryComboOpen] = useState(false);
+  const [registryComboHighlight, setRegistryComboHighlight] = useState(-1);
   const [fullUploadOpen, setFullUploadOpen] = useState(false);
   const [priceUploadOpen, setPriceUploadOpen] = useState(false);
   const [fullUploadFile, setFullUploadFile] = useState<File | null>(null);
@@ -180,7 +209,6 @@ export function ProductMasterScreen() {
   const [currentPage, setCurrentPage] = useState(1);
 
   const sortedFilteredRows = useMemo(() => {
-    const gq = filters.productGroupCode.trim().toLowerCase();
     const gnq = filters.productGroupName.trim().toLowerCase();
     const pnq = filters.productName.trim().toLowerCase();
     const pq = filters.productCode.trim().toLowerCase();
@@ -188,7 +216,6 @@ export function ProductMasterScreen() {
     const sq = filters.sizeLabel.trim().toLowerCase();
 
     const filtered = safeRows.filter((row) => {
-      if (gq && !row.productGroupCode.toLowerCase().includes(gq)) return false;
       if (gnq && !row.productGroupName.toLowerCase().includes(gnq)) return false;
       if (pnq && !row.productName.toLowerCase().includes(pnq)) return false;
       if (pq && !row.productCode.toLowerCase().includes(pq)) return false;
@@ -215,10 +242,40 @@ export function ProductMasterScreen() {
     }
   }, [currentPage, totalPages]);
 
+  const sortedRegistryOptions = useMemo(
+    () =>
+      [...registryEntries].sort((a, b) =>
+        a.productGroupName.localeCompare(b.productGroupName, "ko"),
+      ),
+    [registryEntries],
+  );
+
+  const registryComboFiltered = useMemo(() => {
+    const q = registryComboQuery.trim().toLowerCase();
+    if (!q) return sortedRegistryOptions;
+    return sortedRegistryOptions.filter((e) => e.productGroupName.toLowerCase().includes(q));
+  }, [sortedRegistryOptions, registryComboQuery]);
+
+  const applyRegistryPick = (ent: ProductGroupRegistryEntry) => {
+    setRegistrySelectId(ent.id);
+    setRegistryComboQuery(ent.productGroupName);
+    setCommonDraft((d) => ({
+      ...d,
+      productGroupCode: ent.productGroupCode,
+      productGroupName: ent.productGroupName,
+    }));
+    setRegistryComboOpen(false);
+    setRegistryComboHighlight(-1);
+  };
+
   const openCreate = () => {
     setFormMode("create");
     setEditingId(null);
     setEditingProductCode(null);
+    setRegistrySelectId("");
+    setRegistryComboQuery("");
+    setRegistryComboOpen(false);
+    setRegistryComboHighlight(-1);
     setCommonDraft(emptyCommonDraft());
     setColorOptions([emptyColorOption("co-1")]);
     setNextColorOptionSeq(2);
@@ -232,6 +289,13 @@ export function ProductMasterScreen() {
     setFormMode("edit");
     setEditingId(row.id);
     setEditingProductCode(row.productCode);
+    const registryMatch =
+      findRegistryExactMatch(registryEntries, baseRow.productGroupCode, baseRow.productGroupName) ??
+      findRegistryByNormalizedName(registryEntries, baseRow.productGroupName);
+    setRegistrySelectId(registryMatch?.id ?? "");
+    setRegistryComboQuery(registryMatch?.productGroupName ?? baseRow.productGroupName);
+    setRegistryComboOpen(false);
+    setRegistryComboHighlight(-1);
     setCommonDraft({
       productGroupCode: baseRow.productGroupCode,
       productGroupName: baseRow.productGroupName,
@@ -258,6 +322,10 @@ export function ProductMasterScreen() {
     setFormOpen(false);
     setEditingId(null);
     setEditingProductCode(null);
+    setRegistrySelectId("");
+    setRegistryComboQuery("");
+    setRegistryComboOpen(false);
+    setRegistryComboHighlight(-1);
     setFormError(null);
   };
 
@@ -285,8 +353,10 @@ export function ProductMasterScreen() {
   };
 
   const validate = (): string | null => {
-    if (!commonDraft.productGroupCode.trim()) return "상품군 코드를 입력해 주세요.";
-    if (!commonDraft.productGroupName.trim()) return "상품군명을 입력해 주세요.";
+    const selectedEntry = registryEntries.find((e) => e.id === registrySelectId);
+    if (!selectedEntry) {
+      return "상품군을 목록에서 선택해 주세요. 상품군 관리 메뉴에서 먼저 등록할 수 있습니다.";
+    }
     if (!commonDraft.productName.trim()) return "제품명을 입력해 주세요.";
     if (!commonDraft.productCode.trim()) return "제품코드를 입력해 주세요.";
     if (!commonDraft.sizeLabel.trim()) return "사이즈를 입력해 주세요.";
@@ -340,11 +410,12 @@ export function ProductMasterScreen() {
     return null;
   };
 
-  const buildRowsFromDraft = (baseId: string, previousRows: ProductMasterRow[]): ProductMasterRow[] =>
-    colorOptions.map((option, index) => ({
+  const buildRowsFromDraft = (baseId: string, previousRows: ProductMasterRow[]): ProductMasterRow[] => {
+    const ent = registryEntries.find((e) => e.id === registrySelectId)!;
+    return colorOptions.map((option, index) => ({
       id: previousRows[index]?.id ?? `${baseId}-${index}`,
-      productGroupCode: commonDraft.productGroupCode.trim(),
-      productGroupName: commonDraft.productGroupName.trim(),
+      productGroupCode: ent.productGroupCode.trim(),
+      productGroupName: ent.productGroupName.trim(),
       productName: commonDraft.productName.trim(),
       productCode: commonDraft.productCode.trim(),
       colorCode: option.colorCode.trim(),
@@ -354,6 +425,7 @@ export function ProductMasterScreen() {
       membershipPrice: commonDraft.membershipPrice,
       detailUrl: commonDraft.detailUrl.trim(),
     }));
+  };
 
   const handleSave = () => {
     const error = validate();
@@ -385,7 +457,7 @@ export function ProductMasterScreen() {
       setUploadFailureDetails([]);
       return;
     }
-    const text = await readTextFile(fullUploadFile).catch(() => "");
+    const text = await readUploadTextFile(fullUploadFile).catch(() => "");
     const rows = parseDelimitedLines(text);
     if (rows.length === 0) {
       setUploadMessage({ ok: false, message: "파일 데이터가 비어 있습니다." });
@@ -394,8 +466,10 @@ export function ProductMasterScreen() {
       return;
     }
 
-    const firstCells = rows[0]!;
-    const hasHeader = firstCells[0] === FULL_UPLOAD_COLUMNS[0];
+    const headerCandidate = rows[0]!;
+    const headerFirst = (headerCandidate[0] ?? "").trim();
+    const hasHeader = headerFirst === "상품군명" || headerFirst === "상품군코드";
+    const headerRow = hasHeader ? trimCells(headerCandidate) : undefined;
     const bodyRows = hasHeader ? rows.slice(1) : rows;
     if (bodyRows.length === 0) {
       setUploadMessage({ ok: false, message: "헤더를 제외한 데이터 행이 없습니다." });
@@ -404,18 +478,31 @@ export function ProductMasterScreen() {
       return;
     }
 
+    const layout = detectFullUploadLayout(headerRow, trimCells(bodyRows[0]!));
+    if (!layout) {
+      setUploadMessage({
+        ok: false,
+        message:
+          "파일 형식을 확인해 주세요. 신규 양식은 상품군명부터 9열, 구형은 상품군코드·명 포함 9열(소비자가 없음) 또는 10열입니다.",
+      });
+      setUploadSummary(null);
+      setUploadFailureDetails([]);
+      return;
+    }
+
+    const expectedCols = expectedColumnCount(layout);
+
     const parsed: ProductMasterRow[] = [];
     let failCount = 0;
     const failures: UploadFailureDetail[] = [];
     for (let i = 0; i < bodyRows.length; i += 1) {
-      const cells = bodyRows[i]!;
+      const cells = trimCells(bodyRows[i]!);
       const colCount = cells.length;
-      const expectedNew = FULL_UPLOAD_COLUMNS.length;
-      if (colCount !== expectedNew && colCount !== LEGACY_FULL_UPLOAD_COLUMN_COUNT) {
+      if (colCount !== expectedCols) {
         failCount += 1;
         failures.push({
           rowLabel: `${i + 1}행`,
-          reason: `컬럼 수 불일치 (기대 ${expectedNew} 또는 구버전 ${LEGACY_FULL_UPLOAD_COLUMN_COUNT}, 실제 ${colCount})`,
+          reason: `컬럼 수 불일치 (이 파일 형식 기준 ${expectedCols}열, 실제 ${colCount})`,
         });
         continue;
       }
@@ -424,7 +511,29 @@ export function ProductMasterScreen() {
       let membershipPrice: number;
       let detailUrl: string;
 
-      if (colCount === expectedNew) {
+      if (layout === "name9") {
+        const parsedConsumer = parseMembershipPrice(cells[6] ?? "");
+        const parsedMembership = parseMembershipPrice(cells[7] ?? "");
+        if (parsedConsumer === null) {
+          failCount += 1;
+          failures.push({
+            rowLabel: `${i + 1}행`,
+            reason: "소비자가 형식 오류",
+          });
+          continue;
+        }
+        if (parsedMembership === null) {
+          failCount += 1;
+          failures.push({
+            rowLabel: `${i + 1}행`,
+            reason: "멤버십 가격 형식 오류",
+          });
+          continue;
+        }
+        consumerPrice = parsedConsumer;
+        membershipPrice = parsedMembership;
+        detailUrl = cells[8] ?? "";
+      } else if (layout === "code10") {
         const parsedConsumer = parseMembershipPrice(cells[7] ?? "");
         const parsedMembership = parseMembershipPrice(cells[8] ?? "");
         if (parsedConsumer === null) {
@@ -461,32 +570,73 @@ export function ProductMasterScreen() {
         detailUrl = cells[8] ?? "";
       }
 
+      let canonicalGroup:
+        | ReturnType<typeof findRegistryExactMatch>
+        | ReturnType<typeof findRegistryByNormalizedName>;
+
+      if (layout === "name9") {
+        const fileGroupName = cells[0] ?? "";
+        const registryFailReason = resolveRegistryUploadFailureReasonByName(registryEntries, fileGroupName);
+        if (registryFailReason) {
+          failCount += 1;
+          failures.push({
+            rowLabel: `${i + 1}행`,
+            reason: registryFailReason,
+          });
+          continue;
+        }
+        canonicalGroup = findRegistryByNormalizedName(registryEntries, fileGroupName)!;
+      } else {
+        const fileGroupCode = cells[0] ?? "";
+        const fileGroupName = cells[1] ?? "";
+        const registryFailReason = resolveRegistryUploadFailureReason(
+          registryEntries,
+          fileGroupCode,
+          fileGroupName,
+        );
+        if (registryFailReason) {
+          failCount += 1;
+          failures.push({
+            rowLabel: `${i + 1}행`,
+            reason: registryFailReason,
+          });
+          continue;
+        }
+        canonicalGroup =
+          findRegistryExactMatch(registryEntries, fileGroupCode, fileGroupName) ??
+          findRegistryByNormalizedName(registryEntries, fileGroupName)!;
+      }
+
+      const productName = layout === "name9" ? cells[1] ?? "" : cells[2] ?? "";
+      const productCode = layout === "name9" ? cells[2] ?? "" : cells[3] ?? "";
+      const colorCode = layout === "name9" ? cells[3] ?? "" : cells[4] ?? "";
+      const sizeLabel = layout === "name9" ? cells[4] ?? "" : cells[5] ?? "";
+      const imageUrl = layout === "name9" ? cells[5] ?? "" : cells[6] ?? "";
+
       const row: ProductMasterRow = {
         id: `pm-upload-${Date.now()}-${i}`,
-        productGroupCode: cells[0] ?? "",
-        productGroupName: cells[1] ?? "",
-        productName: cells[2] ?? "",
-        productCode: cells[3] ?? "",
-        colorCode: cells[4] ?? "",
-        sizeLabel: cells[5] ?? "",
-        imageUrl: cells[6] ?? "",
+        productGroupCode: canonicalGroup.productGroupCode,
+        productGroupName: canonicalGroup.productGroupName,
+        productName,
+        productCode,
+        colorCode,
+        sizeLabel,
+        imageUrl,
         consumerPrice,
         membershipPrice,
         detailUrl,
       };
       if (
-        !row.productGroupCode ||
-        !row.productGroupName ||
-        !row.productName ||
-        !row.productCode ||
-        !row.colorCode ||
-        !row.sizeLabel ||
-        !row.imageUrl
+        !row.productName.trim() ||
+        !row.productCode.trim() ||
+        !row.colorCode.trim() ||
+        !row.sizeLabel.trim() ||
+        !row.imageUrl.trim()
       ) {
         failCount += 1;
         failures.push({
           rowLabel: `${i + 1}행`,
-          reason: "필수값 누락 (상품군코드/상품군명/제품명/제품코드/색상코드/사이즈/이미지 URL)",
+          reason: "필수값 누락 (제품명/제품코드/색상코드/사이즈/이미지 URL)",
         });
         continue;
       }
@@ -588,7 +738,7 @@ export function ProductMasterScreen() {
       setUploadFailureDetails([]);
       return;
     }
-    const text = await readTextFile(priceUploadFile).catch(() => "");
+    const text = await readUploadTextFile(priceUploadFile).catch(() => "");
     const rows = parseDelimitedLines(text);
     if (rows.length === 0) {
       setUploadMessage({ ok: false, message: "파일 데이터가 비어 있습니다." });
@@ -675,7 +825,6 @@ export function ProductMasterScreen() {
 
   const resetFilters = () => {
     setFilters({
-      productGroupCode: "",
       productGroupName: "",
       productName: "",
       productCode: "",
@@ -691,7 +840,6 @@ export function ProductMasterScreen() {
     const header = FULL_UPLOAD_COLUMNS.join(",");
     const lines = safeRows.map((row) =>
       [
-        row.productGroupCode,
         row.productGroupName,
         row.productName,
         row.productCode,
@@ -723,7 +871,11 @@ export function ProductMasterScreen() {
           <h1 className="text-lg font-semibold text-[#111111]">상품 마스터</h1>
           <p className="mt-0.5 text-sm text-[#666666]">
             사용자 화면 상품 데이터의 원천(source of truth)이며, 내부 저장 기준은 1행 = 1
-            SKU/옵션입니다.
+            SKU/옵션입니다. 상품군은{" "}
+            <Link href="/admin/product-group-registry" className="text-[#111111] underline-offset-2 hover:underline">
+              상품군 관리
+            </Link>
+            에 등록된 상품군명만 선택·업로드할 수 있습니다. (내부 상품군 코드는 자동 부여·유지)
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -807,6 +959,10 @@ export function ProductMasterScreen() {
               닫기
             </button>
           </div>
+          <p className="mt-2 text-xs text-[#666666]">
+            상품군명은 상품군 관리에 등록된 이름과 일치해야 합니다. 미등록 이름은 행 단위로 거부되며 실패 사유에
+            표시됩니다. 구 엑셀(상품군코드 열 포함)도 그대로 업로드할 수 있습니다.
+          </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -868,8 +1024,8 @@ export function ProductMasterScreen() {
           <details className="mt-3 text-xs text-[#666666]">
             <summary className="cursor-pointer">보조 설명</summary>
             <p className="mt-2">
-              컬럼: 상품군코드, 상품군명, 제품명, 제품코드, 색상코드, 사이즈, 이미지 URL, 소비자가,
-              멤버십 가격, 상세 URL (구버전 9열 파일은 소비자가 0으로 처리)
+              신규 컬럼(9열): 상품군명, 제품명, 제품코드, 색상코드, 사이즈, 이미지 URL, 소비자가, 멤버십 가격,
+              상세 URL. 구형 10열: 선두에 상품군코드·상품군명 추가. 구형 9열: 소비자가 없음 → 소비자가 0으로 처리.
             </p>
             <p className="mt-1">
               업로드 결과는 상품 마스터와 사용자 화면(source of truth)에 동시에 반영됩니다.
@@ -940,7 +1096,6 @@ export function ProductMasterScreen() {
         <div className="mt-3 flex flex-wrap items-end gap-3">
           {(
             [
-              ["pgc", "상품군 코드", filters.productGroupCode, "productGroupCode"],
               ["pgn", "상품군명", filters.productGroupName, "productGroupName"],
               ["pn", "제품명", filters.productName, "productName"],
               ["pc", "제품코드", filters.productCode, "productCode"],
@@ -974,10 +1129,9 @@ export function ProductMasterScreen() {
       </section>
 
       <div className="mt-4 overflow-x-auto rounded-sm border border-[#E5E5E5]">
-        <table className="w-full min-w-[1040px] border-collapse text-left">
+        <table className="w-full min-w-[960px] border-collapse text-left">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
-              <th className={thCls}>상품군 코드</th>
               <th className={thCls}>상품군명</th>
               <th className={thCls}>제품명</th>
               <th className={thCls}>제품코드</th>
@@ -993,7 +1147,7 @@ export function ProductMasterScreen() {
           <tbody>
             {sortedFilteredRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-10 text-center text-sm text-[#888888]" colSpan={11}>
+                <td className="px-3 py-10 text-center text-sm text-[#888888]" colSpan={10}>
                   조건에 맞는 행이 없습니다.
                 </td>
               </tr>
@@ -1001,21 +1155,18 @@ export function ProductMasterScreen() {
               pagedRows.map((row, idx) => {
                 const globalIndex = pageStartIndex + idx;
                 const prev =
-                  globalIndex > 0 ? sortedFilteredRows[globalIndex - 1]!.productGroupCode : null;
-                const showGroupHeader = row.productGroupCode !== prev;
+                  globalIndex > 0 ? sortedFilteredRows[globalIndex - 1]!.productGroupName : null;
+                const showGroupHeader = row.productGroupName !== prev;
                 return (
                   <Fragment key={row.id}>
                     {showGroupHeader ? (
                       <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-                        <td colSpan={11} className="px-3 py-2 text-xs font-medium text-[#666666]">
-                          <span className="font-mono text-[#111111]">{row.productGroupCode}</span>
-                          <span className="mx-2 text-[#E5E5E5]">|</span>
+                        <td colSpan={10} className="px-3 py-2 text-xs font-medium text-[#666666]">
                           {row.productGroupName}
                         </td>
                       </tr>
                     ) : null}
                     <tr className="border-b border-[#E5E5E5] last:border-b-0">
-                      <td className={`${tdCls} font-mono text-[#666666]`}>{row.productGroupCode}</td>
                       <td className={tdCls}>{row.productGroupName}</td>
                       <td className={tdCls}>{row.productName}</td>
                       <td className={`${tdCls} font-mono`}>{row.productCode}</td>
@@ -1102,27 +1253,148 @@ export function ProductMasterScreen() {
           <div className="mt-4 rounded-sm border border-[#E5E5E5] bg-white p-3">
             <p className="text-xs font-medium text-[#666666]">공통 정보</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="pm-d-pgc" className="text-xs text-[#888888]">
-                  상품군 코드
+              <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+                <label htmlFor="pm-d-registry" className="text-xs text-[#888888]">
+                  상품군 (등록 목록)
                 </label>
-                <input
-                  id="pm-d-pgc"
-                  value={commonDraft.productGroupCode}
-                  onChange={(e) => setCommonDraft((d) => ({ ...d, productGroupCode: e.target.value }))}
-                  className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111]"
-                />
-              </div>
-              <div className="flex flex-col gap-1 sm:col-span-2">
-                <label htmlFor="pm-d-pgn" className="text-xs text-[#888888]">
-                  상품군명
-                </label>
-                <input
-                  id="pm-d-pgn"
-                  value={commonDraft.productGroupName}
-                  onChange={(e) => setCommonDraft((d) => ({ ...d, productGroupName: e.target.value }))}
-                  className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111]"
-                />
+                <div className="relative">
+                  <input
+                    id="pm-d-registry"
+                    type="search"
+                    autoComplete="off"
+                    role="combobox"
+                    aria-expanded={registryComboOpen}
+                    aria-controls="pm-registry-listbox"
+                    aria-activedescendant={
+                      registryComboHighlight >= 0 && registryComboFiltered[registryComboHighlight]
+                        ? `pm-registry-opt-${registryComboFiltered[registryComboHighlight]!.id}`
+                        : undefined
+                    }
+                    placeholder="상품군명 검색 후 선택"
+                    value={registryComboQuery}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setRegistryComboQuery(v);
+                      setRegistryComboOpen(true);
+                      setRegistryComboHighlight(-1);
+                      const sel = registryEntries.find((x) => x.id === registrySelectId);
+                      if (sel && v.trim() !== sel.productGroupName.trim()) {
+                        setRegistrySelectId("");
+                        setCommonDraft((d) => ({
+                          ...d,
+                          productGroupCode: "",
+                          productGroupName: "",
+                        }));
+                      }
+                    }}
+                    onFocus={() => setRegistryComboOpen(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => {
+                        setRegistryComboOpen(false);
+                        setRegistryComboHighlight(-1);
+                        const sel = registryEntries.find((x) => x.id === registrySelectId);
+                        if (sel) {
+                          setRegistryComboQuery(sel.productGroupName);
+                        }
+                      }, 200);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setRegistryComboOpen(false);
+                        setRegistryComboHighlight(-1);
+                        const sel = registryEntries.find((x) => x.id === registrySelectId);
+                        setRegistryComboQuery(sel?.productGroupName ?? "");
+                        return;
+                      }
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        if (!registryComboOpen) setRegistryComboOpen(true);
+                        setRegistryComboHighlight((h) => {
+                          const n = registryComboFiltered.length;
+                          if (n === 0) return -1;
+                          if (h < 0) return 0;
+                          return Math.min(n - 1, h + 1);
+                        });
+                        return;
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        if (!registryComboOpen) setRegistryComboOpen(true);
+                        setRegistryComboHighlight((h) => {
+                          const n = registryComboFiltered.length;
+                          if (n === 0) return -1;
+                          if (h <= 0) return 0;
+                          return h - 1;
+                        });
+                        return;
+                      }
+                      if (e.key === "Enter") {
+                        const n = registryComboFiltered.length;
+                        if (n === 0) return;
+                        e.preventDefault();
+                        const idx =
+                          registryComboHighlight >= 0
+                            ? registryComboHighlight
+                            : n === 1
+                              ? 0
+                              : -1;
+                        const pick = idx >= 0 ? registryComboFiltered[idx] : undefined;
+                        if (pick) applyRegistryPick(pick);
+                      }
+                    }}
+                    className="w-full rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111] placeholder:text-[#888888]"
+                  />
+                  {registryComboOpen ? (
+                    <ul
+                      id="pm-registry-listbox"
+                      role="listbox"
+                      className="absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-auto rounded-sm border border-[#E5E5E5] bg-white py-1"
+                    >
+                      {sortedRegistryOptions.length === 0 ? (
+                        <li className="px-2 py-2 text-xs text-[#888888]">
+                          등록된 상품군이 없습니다.
+                        </li>
+                      ) : registryComboFiltered.length === 0 ? (
+                        <li className="px-2 py-2 text-xs text-[#888888]">검색 결과가 없습니다.</li>
+                      ) : (
+                        registryComboFiltered.map((opt, idx) => (
+                          <li
+                            key={opt.id}
+                            id={`pm-registry-opt-${opt.id}`}
+                            role="option"
+                            aria-selected={registrySelectId === opt.id}
+                            className={`cursor-pointer px-2 py-1.5 text-sm text-[#111111] ${
+                              idx === registryComboHighlight ? "bg-[#F5F5F5]" : ""
+                            }`}
+                            onMouseEnter={() => setRegistryComboHighlight(idx)}
+                            onMouseDown={(ev) => {
+                              ev.preventDefault();
+                              applyRegistryPick(opt);
+                            }}
+                          >
+                            {opt.productGroupName}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-[#666666]">
+                  <Link
+                    href="/admin/product-group-registry"
+                    className="text-[#111111] underline-offset-2 hover:underline"
+                  >
+                    상품군 관리
+                  </Link>
+                  에서 먼저 등록합니다. 이름을 입력하면 목록이 필터링됩니다.
+                </p>
+                {formMode === "edit" && !registrySelectId ? (
+                  <p className="text-[11px] text-[#111111]" role="alert">
+                    이 행의 상품군이 레지스트리에 없습니다. 등록을 추가하거나, 목록에서 등록된 상품군으로 변경해
+                    주세요.
+                  </p>
+                ) : null}
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
                 <label htmlFor="pm-d-pn" className="text-xs text-[#888888]">

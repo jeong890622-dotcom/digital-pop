@@ -22,7 +22,10 @@ export const MOCK_STORE_ADMIN_STORE_ID = "store-seoul-gangnam";
 export function navItemsForRole(role: AdminRole): AdminNavItem[] {
   if (role === "master") {
     return [
+      { href: "/admin/product-collection", label: "상품 수집" },
+      { href: "/admin/product-group-registry", label: "상품군 관리" },
       { href: "/admin/products", label: "상품 마스터" },
+      { href: "/admin/product-group-options", label: "상품군별 옵션 관리" },
       { href: "/admin/product-events", label: "상품 이벤트 등록" },
       { href: "/admin/stores", label: "매장 목록" },
       { href: "/admin/operations", label: "매장 운영" },

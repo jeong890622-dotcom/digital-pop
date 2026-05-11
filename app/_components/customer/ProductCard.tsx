@@ -16,6 +16,10 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
     !product.imageUrl.trim()
       ? "/window.svg"
       : product.imageUrl;
+  const normalizedSize = product.size.replace(/\s+/g, "");
+  const showSizeLine =
+    normalizedSize.length > 0 &&
+    !/^0(?:[xX*]0)*$/.test(normalizedSize);
 
   return (
     <button
@@ -38,8 +42,10 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
           <h3 className="line-clamp-2 text-sm font-medium text-[#111111] group-hover:opacity-80">
             {product.name}
           </h3>
-          <p className="mt-1 text-xs text-[#666666]">{product.size}</p>
-          <p className="mt-2 text-sm font-semibold text-[#111111]">
+          {showSizeLine ? (
+            <p className="mt-1 text-xs text-[#666666]">{product.size}</p>
+          ) : null}
+          <p className={`${showSizeLine ? "mt-2" : "mt-1"} text-sm font-semibold text-[#111111]`}>
             {formatPrice(product.membershipPrice)}
           </p>
           {badges.length > 0 ? (

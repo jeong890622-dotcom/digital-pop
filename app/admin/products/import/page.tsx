@@ -1,5 +1,6 @@
+import Link from "next/link";
+
 const EXCEL_COLUMNS = [
-  "상품군코드",
   "상품군명",
   "제품명",
   "제품코드",
@@ -16,7 +17,12 @@ export default function AdminProductsImportPage() {
     <section>
       <h1 className="text-lg font-semibold text-[#111111]">상품 엑셀 업로드</h1>
       <p className="mt-1 text-sm text-[#666666]">
-        엑셀 및 내부 저장 기준은 1행 = 1 SKU/옵션입니다.
+        엑셀 및 내부 저장 기준은 1행 = 1 SKU/옵션입니다. 상품 전체 업로드 시 상품군명은{" "}
+        <Link href="/admin/product-group-registry" className="text-[#111111] underline-offset-2 hover:underline">
+          상품군 관리
+        </Link>
+        에 등록된 이름과 일치해야 하며, 미등록 이름은 행이 거부됩니다. 구형 파일(행 선두에 상품군코드 열이 있는 9·10열)
+        도 동일 화면에서 업로드할 수 있습니다.
       </p>
 
       <div className="mt-5 rounded-sm border border-[#E5E5E5] bg-[#F5F5F5] p-4">
@@ -34,7 +40,7 @@ export default function AdminProductsImportPage() {
       </div>
 
       <div className="mt-4 overflow-x-auto rounded-sm border border-[#E5E5E5]">
-        <table className="w-full min-w-[920px] border-collapse text-left">
+        <table className="w-full min-w-[860px] border-collapse text-left">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-white">
               <th className="px-3 py-2 text-xs font-medium text-[#666666]">순서</th>
