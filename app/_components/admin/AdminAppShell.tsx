@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AdminNavItem } from "../../_data/adminNavigation";
 import {
   isPathAllowedForStore,
@@ -13,7 +13,38 @@ import {
 import type { AdminRole } from "../../_types/admin";
 import { adminHref } from "./adminHref";
 import { AdminAuthGate } from "./AdminAuthGate";
-import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
+import {
+  toResetPassword,
+  useAdminAccountState,
+  type AdminSession,
+} from "../../_lib/adminAccountStore";
+import { getSupabaseClient } from "../../_lib/supabase";
+
+type AdminProfileRow = {
+  id: string;
+  role: "master" | "store";
+  username: string;
+  is_super: boolean;
+  store_id: string | null;
+  status: "PENDING" | "ACTIVE" | "REJECTED" | "LOCKED";
+};
+
+function adminSessionFromProfile(profile: AdminProfileRow): AdminSession {
+  if (profile.role === "master") {
+    return {
+      role: "master",
+      isSuper: profile.is_super,
+      accountId: profile.id,
+      username: profile.username,
+    };
+  }
+  return {
+    role: "store",
+    storeId: profile.store_id ?? "",
+    accountId: profile.id,
+    username: profile.username,
+  };
+}
 
 function activeNavHref(pathname: string, items: AdminNavItem[]): string | null {
   const normalizedPath = normalizePath(pathname);
@@ -57,10 +88,56 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
     return Boolean(account?.mustChangePassword);
   }, [state]);
 
-  const logout = () => {
+  const logout = async () => {
+    const client = getSupabaseClient();
+    if (client) {
+      await client.auth.signOut();
+    }
     setState({ ...state, session: null });
     router.replace("/admin");
   };
+
+  /** 페이지 새로고침 시 Supabase 세션이 있으면 한 번만 복원 */
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const setStateRef = useRef(setState);
+  setStateRef.current = setState;
+  useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await client.auth.getSession();
+      if (cancelled) return;
+      const supaSession = data.session;
+      const localSession = stateRef.current.session;
+      if (!supaSession) {
+        // Supabase 로그아웃 상태인데 localStorage에만 mock 세션이 남아 있다면 정리
+        if (localSession) {
+          setStateRef.current({ ...stateRef.current, session: null });
+        }
+        return;
+      }
+      if (localSession?.accountId === supaSession.user.id) return;
+      const { data: profile, error } = await client
+        .from("admin_profiles")
+        .select("id, role, username, is_super, store_id, status")
+        .eq("id", supaSession.user.id)
+        .single<AdminProfileRow>();
+      if (cancelled || error || !profile) return;
+      if (profile.status !== "ACTIVE") {
+        await client.auth.signOut();
+        return;
+      }
+      setStateRef.current({
+        ...stateRef.current,
+        session: adminSessionFromProfile(profile),
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleChangePassword = () => {
     if (!state.session) return;

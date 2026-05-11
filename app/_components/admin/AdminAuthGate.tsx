@@ -1,7 +1,40 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useAdminAccountState, toResetPassword } from "../../_lib/adminAccountStore";
+import { useAdminAccountState, toResetPassword, type AdminSession } from "../../_lib/adminAccountStore";
+import { getSupabaseClient } from "../../_lib/supabase";
+
+/** 사용자가 입력한 username을 Supabase Auth용 이메일로 매핑 */
+const SUPABASE_EMAIL_DOMAIN = "digital-pop.local";
+function usernameToEmail(username: string): string {
+  return `${username.trim().toLowerCase()}@${SUPABASE_EMAIL_DOMAIN}`;
+}
+
+type AdminProfileRow = {
+  id: string;
+  role: "master" | "store";
+  username: string;
+  is_super: boolean;
+  store_id: string | null;
+  status: "PENDING" | "ACTIVE" | "REJECTED" | "LOCKED";
+};
+
+function adminSessionFromProfile(profile: AdminProfileRow): AdminSession {
+  if (profile.role === "master") {
+    return {
+      role: "master",
+      isSuper: profile.is_super,
+      accountId: profile.id,
+      username: profile.username,
+    };
+  }
+  return {
+    role: "store",
+    storeId: profile.store_id ?? "",
+    accountId: profile.id,
+    username: profile.username,
+  };
+}
 
 type AuthTab = "login" | "master-apply" | "store-apply";
 
@@ -12,6 +45,7 @@ export function AdminAuthGate() {
 
   const [loginId, setLoginId] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [masterName, setMasterName] = useState("");
   const [masterTeam, setMasterTeam] = useState("");
@@ -105,7 +139,7 @@ export function AdminAuthGate() {
     setMessage("매장 관리자 신청이 접수되었습니다. 승인 후 로그인 가능합니다.");
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     const username = loginId.trim().toLowerCase();
     const password = loginPassword;
     if (!username || !password) {
@@ -113,71 +147,57 @@ export function AdminAuthGate() {
       return;
     }
 
-    const masterIndex = state.masterAccounts.findIndex((a) => a.username.toLowerCase() === username);
-    if (masterIndex >= 0) {
-      const target = state.masterAccounts[masterIndex]!;
-      if (target.status === "LOCKED") {
+    const client = getSupabaseClient();
+    if (!client) {
+      setMessage("로그인 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const email = usernameToEmail(username);
+      const { data: signInData, error: signInError } = await client.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError || !signInData.user) {
+        setMessage("로그인 정보가 올바르지 않습니다.");
+        return;
+      }
+
+      const { data: profile, error: profileError } = await client
+        .from("admin_profiles")
+        .select("id, role, username, is_super, store_id, status")
+        .eq("id", signInData.user.id)
+        .single<AdminProfileRow>();
+
+      if (profileError || !profile) {
+        await client.auth.signOut();
+        setMessage("계정 정보를 불러올 수 없습니다. 관리자에게 문의해 주세요.");
+        return;
+      }
+
+      if (profile.status === "LOCKED") {
+        await client.auth.signOut();
         setMessage("잠긴 계정입니다. 총괄 관리자에게 잠금 해제를 요청해 주세요.");
         return;
       }
-      if (target.password !== password) {
-        const failedCount = target.failedCount + 1;
-        const nextStatus = failedCount >= 10 ? "LOCKED" : target.status;
-        const nextMasterAccounts = [...state.masterAccounts];
-        nextMasterAccounts[masterIndex] = { ...target, failedCount, status: nextStatus };
-        setState({ ...state, masterAccounts: nextMasterAccounts });
-        setMessage(nextStatus === "LOCKED" ? "비밀번호 10회 오류로 계정이 잠겼습니다." : "로그인 정보가 올바르지 않습니다.");
+      if (profile.status === "REJECTED") {
+        await client.auth.signOut();
+        setMessage("계정 신청이 거절되었습니다. 사유는 관리자에게 문의해 주세요.");
         return;
       }
-      const nextMasterAccounts = [...state.masterAccounts];
-      nextMasterAccounts[masterIndex] = { ...target, failedCount: 0 };
-      setState({
-        ...state,
-        masterAccounts: nextMasterAccounts,
-        session: {
-          role: "master",
-          isSuper: target.isSuper,
-          accountId: target.id,
-          username: target.username,
-        },
-      });
-      setMessage(null);
-      return;
-    }
+      if (profile.status === "PENDING") {
+        await client.auth.signOut();
+        setMessage("승인 대기 중인 계정입니다. 승인 후 로그인할 수 있습니다.");
+        return;
+      }
 
-    const storeIndex = state.storeAccounts.findIndex((a) => a.username.toLowerCase() === username);
-    if (storeIndex >= 0) {
-      const target = state.storeAccounts[storeIndex]!;
-      if (target.status === "LOCKED") {
-        setMessage("잠긴 계정입니다. 관리자에게 잠금 해제를 요청해 주세요.");
-        return;
-      }
-      if (target.password !== password) {
-        const failedCount = target.failedCount + 1;
-        const nextStatus = failedCount >= 10 ? "LOCKED" : target.status;
-        const nextStoreAccounts = [...state.storeAccounts];
-        nextStoreAccounts[storeIndex] = { ...target, failedCount, status: nextStatus };
-        setState({ ...state, storeAccounts: nextStoreAccounts });
-        setMessage(nextStatus === "LOCKED" ? "비밀번호 10회 오류로 계정이 잠겼습니다." : "로그인 정보가 올바르지 않습니다.");
-        return;
-      }
-      const nextStoreAccounts = [...state.storeAccounts];
-      nextStoreAccounts[storeIndex] = { ...target, failedCount: 0 };
-      setState({
-        ...state,
-        storeAccounts: nextStoreAccounts,
-        session: {
-          role: "store",
-          storeId: target.storeId,
-          accountId: target.id,
-          username: target.username,
-        },
-      });
+      setState({ ...state, session: adminSessionFromProfile(profile) });
       setMessage(null);
-      return;
+    } finally {
+      setIsLoggingIn(false);
     }
-
-    setMessage("로그인 정보가 올바르지 않습니다.");
   };
 
   const changeTab = (nextTab: AuthTab) => {
@@ -192,7 +212,7 @@ export function AdminAuthGate() {
         승인된 계정만 관리자 페이지에 로그인할 수 있습니다.
       </p>
       <p className="mt-1 text-xs text-[#888888]">
-        초기 총괄 계정: <code>supermaster / {toResetPassword("01012345678")}</code>
+        승인된 아이디·비밀번호로 로그인하세요. 신청 후에는 총괄 관리자 승인이 필요합니다.
       </p>
 
       <div className="mt-4 flex gap-2 border-b border-[#E5E5E5] pb-3">
@@ -234,9 +254,10 @@ export function AdminAuthGate() {
           <button
             type="button"
             onClick={handleLogin}
-            className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white"
+            disabled={isLoggingIn}
+            className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white disabled:opacity-50"
           >
-            로그인
+            {isLoggingIn ? "로그인 중…" : "로그인"}
           </button>
         </div>
       ) : null}
