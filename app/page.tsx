@@ -15,6 +15,7 @@ import { formatPrice } from "./_lib/formatPrice";
 import { useProductGroupOptionRules } from "./_lib/productGroupOptionStore";
 import { useProductMasterRows } from "./_lib/productMasterStore";
 import { useStoreOperationRows } from "./_lib/storeOperationStore";
+import { fetchStores, type StoreRow } from "./_lib/supabaseAdmin";
 import { filterProductsByZone, searchProductsInStore } from "./_lib/productFilters";
 import {
   addOrMergeQuoteItem,
@@ -44,6 +45,17 @@ function HomeContent() {
   const [productMasterRows] = useProductMasterRows();
   const [groupOptionRules] = useProductGroupOptionRules();
   const [operationRowsByStore] = useStoreOperationRows();
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const list = await fetchStores();
+      if (!cancelled) setStores(list);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const baseCatalog = useMemo(
     () =>
       buildStoreCatalogFromProductMasterRows(
@@ -112,6 +124,16 @@ function HomeContent() {
       ),
     [groupOptionRules, merchandisingRowsForStore, productMasterRows, resolvedStoreId],
   );
+  /**
+   * Supabase stores 에서 현재 매장 이름을 가져온다.
+   * - QR 로 들어온 매장이 실제 등록된 매장이면 그 이름이 표시됨
+   * - stores fetch 가 끝나기 전이거나 매장을 못 찾으면 빈 문자열로 두어
+   *   기존 mock("DESKER 강남점") 이 잘못 표시되는 것을 막는다.
+   */
+  const resolvedStoreName = useMemo(() => {
+    const match = stores.find((s) => s.id === resolvedStoreId);
+    return match?.name ?? "";
+  }, [stores, resolvedStoreId]);
   const isAllZoneParam = effectiveZoneParam === ALL_ZONE_VALUE;
   const zoneExists = catalog.zones.some((zone) => zone.id === effectiveZoneParam);
   const isMissingRequestedQrZone =
@@ -294,7 +316,7 @@ function HomeContent() {
 
     return (
       <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white">
-        <StoreHeader storeName={catalog.storeName} />
+        <StoreHeader storeName={resolvedStoreName} />
         <section className="px-4 py-16 sm:px-6 lg:px-10">
           <div className="rounded-sm border border-[#E5E5E5] bg-[#F5F5F5] px-5 py-6">
             <p className="text-xs text-[#888888]">안내</p>
@@ -311,7 +333,7 @@ function HomeContent() {
 
   return (
     <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white">
-      <StoreHeader storeName={catalog.storeName} />
+      <StoreHeader storeName={resolvedStoreName} />
       {quoteExpiryNotice ? (
         <QuoteExpiryNotice
           message={quoteExpiryNotice}
