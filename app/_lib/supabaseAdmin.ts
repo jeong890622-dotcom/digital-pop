@@ -45,6 +45,74 @@ export async function fetchStores(): Promise<StoreRow[]> {
   return data as StoreRow[];
 }
 
+export type StoreMutationResult =
+  | { ok: true }
+  | { ok: false; reason: "DUPLICATE_CODE" | "UNKNOWN"; message: string };
+
+/** 매장 등록 */
+export async function createStore(params: {
+  id: string;
+  code: string;
+  name: string;
+}): Promise<StoreMutationResult> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { ok: false, reason: "UNKNOWN", message: "매장 데이터에 연결할 수 없습니다." };
+  }
+  const id = params.id.trim();
+  const code = params.code.trim().toUpperCase();
+  const name = params.name.trim();
+  if (!id || !code || !name) {
+    return { ok: false, reason: "UNKNOWN", message: "매장 ID·코드·이름을 모두 입력해 주세요." };
+  }
+  const { error } = await client.from("stores").insert({ id, code, name });
+  if (error) {
+    const msg = (error.message ?? "").toLowerCase();
+    if (msg.includes("duplicate") || msg.includes("unique")) {
+      return {
+        ok: false,
+        reason: "DUPLICATE_CODE",
+        message: "이미 사용 중인 매장 ID 또는 코드입니다.",
+      };
+    }
+    return {
+      ok: false,
+      reason: "UNKNOWN",
+      message: `매장 등록 중 오류가 발생했습니다. (${error.message})`,
+    };
+  }
+  return { ok: true };
+}
+
+/** 매장 수정 (이름만 변경 가능. id·code 는 한 번 정해지면 고정) */
+export async function updateStoreName(id: string, name: string): Promise<StoreMutationResult> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { ok: false, reason: "UNKNOWN", message: "매장 데이터에 연결할 수 없습니다." };
+  }
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return { ok: false, reason: "UNKNOWN", message: "매장명을 입력해 주세요." };
+  }
+  const { error } = await client.from("stores").update({ name: trimmed }).eq("id", id);
+  if (error) {
+    return {
+      ok: false,
+      reason: "UNKNOWN",
+      message: `매장 수정 중 오류가 발생했습니다. (${error.message})`,
+    };
+  }
+  return { ok: true };
+}
+
+/** 매장 삭제 (현 단계에서는 사용 안 함, 필요 시 호출) */
+export async function deleteStore(id: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+  const { error } = await client.from("stores").delete().eq("id", id);
+  return !error;
+}
+
 /** 특정 role의 admin_profiles 전체 */
 export async function fetchAdminProfilesByRole(
   role: AdminProfileRole,

@@ -4,13 +4,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { adminHref } from "../../_components/admin/adminHref";
-import {
-  MOCK_STORE_ADMIN_STORE_ID,
-  type MockStore,
-} from "../../_data/adminNavigation";
+import { MOCK_STORE_ADMIN_STORE_ID } from "../../_data/adminNavigation";
 import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
 import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 import { useStoreOperationRows } from "../../_lib/storeOperationStore";
+import { fetchStores, type StoreRow } from "../../_lib/supabaseAdmin";
 import type { AdminRole } from "../../_types/admin";
 
 type OperationTabId = "merchandising" | "qr" | "managers";
@@ -138,14 +136,24 @@ export default function AdminOperationsPage() {
   const searchParams = useSearchParams();
   const role = useMemo(() => parseRole(searchParams.get("role")), [searchParams]);
   const [adminState, setAdminState] = useAdminAccountState();
-  const stores = adminState.stores;
+  const [stores, setStores] = useState<StoreRow[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const data = await fetchStores();
+      if (!cancelled) setStores(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const selectedStoreId = useMemo(() => {
     if (role === "store") {
       return MOCK_STORE_ADMIN_STORE_ID;
     }
     return searchParams.get("storeId") ?? stores[0]?.id ?? MOCK_STORE_ADMIN_STORE_ID;
   }, [role, searchParams, stores]);
-  const selectedStore = useMemo<MockStore | undefined>(
+  const selectedStore = useMemo<StoreRow | undefined>(
     () => stores.find((store) => store.id === selectedStoreId),
     [selectedStoreId, stores],
   );
