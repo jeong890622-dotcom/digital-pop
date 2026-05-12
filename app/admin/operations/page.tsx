@@ -407,19 +407,41 @@ export default function AdminOperationsPage() {
     }
   };
 
-  const downloadQrImage = async (entry: ZoneQrEntry) => {
+  /**
+   * QR 이미지를 PNG 또는 SVG 로 다운로드한다.
+   * - PNG: 기존 entry.qrImageUrl 그대로 사용
+   * - SVG: api.qrserver.com 의 format=svg 옵션을 추가해서 동일 데이터의 벡터본을 받아옴
+   */
+  const downloadQrImage = async (
+    entry: ZoneQrEntry,
+    format: "png" | "svg" = "png",
+  ) => {
     try {
-      const response = await fetch(entry.qrImageUrl);
+      const sourceUrl =
+        format === "svg"
+          ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&format=svg&data=${encodeURIComponent(
+              entry.qrUrl,
+            )}`
+          : entry.qrImageUrl;
+      const response = await fetch(sourceUrl);
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = objectUrl;
-      link.download = `${entry.storeId}-${entry.zoneId}-qr.png`;
+      link.download = `${entry.storeId}-${entry.zoneId}-qr.${format}`;
       link.click();
       URL.revokeObjectURL(objectUrl);
-      setQrMessage("QR 이미지 다운로드를 시작했습니다.");
+      setQrMessage(
+        format === "svg"
+          ? "SVG 다운로드를 시작했습니다."
+          : "PNG 다운로드를 시작했습니다.",
+      );
     } catch {
-      setQrMessage("QR 이미지 다운로드에 실패했습니다.");
+      setQrMessage(
+        format === "svg"
+          ? "SVG 다운로드에 실패했습니다."
+          : "PNG 다운로드에 실패했습니다.",
+      );
     }
   };
 
@@ -906,13 +928,22 @@ export default function AdminOperationsPage() {
                                   alt={`${zone} QR`}
                                   className="h-[120px] w-[120px] border border-[#E5E5E5] bg-white object-contain"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={() => downloadQrImage(existingEntry)}
-                                  className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
-                                >
-                                  다운로드
-                                </button>
+                                <div className="flex flex-wrap gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadQrImage(existingEntry, "png")}
+                                    className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                                  >
+                                    PNG 다운로드
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadQrImage(existingEntry, "svg")}
+                                    className="rounded-sm border border-[#E5E5E5] bg-white px-2.5 py-1 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                                  >
+                                    SVG 다운로드
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <span className="text-xs text-[#888888]">-</span>

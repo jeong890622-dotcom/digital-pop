@@ -7,6 +7,12 @@ import {
   replaceAllProductMaster,
 } from "./supabaseProducts";
 
+/**
+ * useSyncExternalStore 의 getServerSnapshot 이 매 호출마다 같은 참조를
+ * 반환해야 React 의 무한 루프 경고를 피할 수 있다.
+ */
+const EMPTY_ROWS: ProductMasterRow[] = [];
+
 let rowsState: ProductMasterRow[] = [];
 const listeners = new Set<() => void>();
 let hydrated = false;
@@ -116,7 +122,7 @@ export function useProductMasterRows(): [
   const rows = useSyncExternalStore(
     subscribeProductMasterRows,
     getProductMasterRowsSnapshot,
-    () => [] as ProductMasterRow[],
+    () => EMPTY_ROWS,
   );
   const setRows = useMemo(
     () => (nextRows: ProductMasterRow[]) => setProductMasterRows(nextRows),

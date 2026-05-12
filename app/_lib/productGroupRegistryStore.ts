@@ -9,6 +9,12 @@ import {
   replaceAllProductGroupRegistry,
 } from "./supabaseProductGroups";
 
+/**
+ * useSyncExternalStore 의 getServerSnapshot 이 매 호출마다 같은 참조를
+ * 반환해야 React 의 무한 루프 경고를 피할 수 있다.
+ */
+const EMPTY_ENTRIES: ProductGroupRegistryEntry[] = [];
+
 let registryState: ProductGroupRegistryEntry[] = [];
 const listeners = new Set<() => void>();
 let hydrated = false;
@@ -117,7 +123,7 @@ export function useProductGroupRegistry(): [
   const entries = useSyncExternalStore(
     subscribeProductGroupRegistry,
     getProductGroupRegistrySnapshot,
-    () => [] as ProductGroupRegistryEntry[],
+    () => EMPTY_ENTRIES,
   );
   const setEntries = useMemo(
     () => (next: ProductGroupRegistryEntry[]) => setProductGroupRegistryEntries(next),
