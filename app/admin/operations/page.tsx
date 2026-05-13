@@ -34,6 +34,7 @@ import {
   type ZoneQrEntry,
 } from "../../_lib/storeZoneQrStore";
 import { fetchStores, type StoreRow } from "../../_lib/supabaseAdmin";
+import { zoneIdFromLabel } from "../../_lib/zoneIdFromLabel";
 import type { AdminRole } from "../../_types/admin";
 
 type OperationTabId = "merchandising" | "qr" | "managers";
@@ -177,11 +178,6 @@ function downloadTemplate(filename: string, columns: readonly string[]): void {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-function zoneIdFromLabel(label: string): string {
-  const normalized = label.trim().toLowerCase();
-  return `zone-${normalized.replace(/\s+/g, "-")}`;
 }
 
 export default function AdminOperationsPage() {

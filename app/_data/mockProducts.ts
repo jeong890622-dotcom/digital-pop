@@ -3,6 +3,7 @@ import type { ProductGroupOptionRule } from "../_types/productGroupOption";
 import { INITIAL_PRODUCT_MASTER_ROWS, type ProductMasterRow } from "./mockProductMaster";
 import type { StoreOperationRow } from "../_lib/storeOperationStore";
 import { displayCategoryRank } from "../_lib/productCategoryDisplayOrder";
+import { zoneIdFromLabel } from "../_lib/zoneIdFromLabel";
 import { MOCK_STORES } from "./adminNavigation";
 
 export type Zone = {
@@ -64,12 +65,6 @@ function zoneIdByGroupCode(groupCode: string): string {
     return "zone-storage";
   }
   return "zone-lighting";
-}
-
-function zoneIdFromLabel(label: string): string {
-  const normalized = label.trim().toLowerCase();
-  if (!normalized) return "";
-  return `zone-${normalized.replace(/\s+/g, "-")}`;
 }
 
 const COLOR_PRIORITY_ORDER = ["WWWW", "MLWW", "MLFK", "FKFK", "MACFK"] as const;
