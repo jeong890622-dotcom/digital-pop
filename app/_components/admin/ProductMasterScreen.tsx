@@ -24,6 +24,7 @@ type FilterState = {
 };
 
 type ProductCommonDraft = {
+  category: string;
   productGroupCode: string;
   productGroupName: string;
   productName: string;
@@ -41,6 +42,7 @@ type ColorOptionDraft = {
 };
 
 const emptyCommonDraft = (): ProductCommonDraft => ({
+  category: "",
   productGroupCode: "",
   productGroupName: "",
   productName: "",
@@ -77,6 +79,7 @@ type UploadFailureDetail = {
 type FullUploadMode = "overwrite" | "append" | "upsert";
 
 const FULL_UPLOAD_COLUMNS = [
+  "카테고리",
   "상품군명",
   "제품명",
   "제품코드",
@@ -88,10 +91,18 @@ const FULL_UPLOAD_COLUMNS = [
   "상세 URL",
 ] as const;
 
-type FullUploadLayout = "name9" | "code10" | "code9";
+type FullUploadLayout = "name10" | "name9" | "code11" | "code10" | "code9";
 
 function detectFullUploadLayout(header: string[] | undefined, sampleBody: string[]): FullUploadLayout | null {
   const len = sampleBody.length;
+  const h0 = header?.[0]?.trim();
+  const h1 = header?.[1]?.trim();
+
+  if (h0 === "카테고리") {
+    if (h1 === "상품군명" && len === 10) return "name10";
+    if (h1 === "상품군코드" && len === 11) return "code11";
+    return null;
+  }
   if (header?.[0] === "상품군명") {
     return len === 9 ? "name9" : null;
   }
@@ -99,7 +110,10 @@ function detectFullUploadLayout(header: string[] | undefined, sampleBody: string
     if (header.includes("소비자가")) return len === 10 ? "code10" : null;
     return len === 9 ? "code9" : null;
   }
-  if (len === 10) return "code10";
+  if (len === 11) return "code11";
+  if (len === 10) {
+    return /^PG-/i.test((sampleBody[0] ?? "").trim()) ? "code10" : "name10";
+  }
   if (len === 9) {
     return /^PG-/i.test((sampleBody[0] ?? "").trim()) ? "code9" : "name9";
   }
@@ -107,7 +121,9 @@ function detectFullUploadLayout(header: string[] | undefined, sampleBody: string
 }
 
 function expectedColumnCount(layout: FullUploadLayout): number {
-  return layout === "code10" ? 10 : 9;
+  if (layout === "code11") return 11;
+  if (layout === "name10" || layout === "code10") return 10;
+  return 9;
 }
 
 function trimCells(cells: string[]): string[] {
@@ -119,12 +135,14 @@ const LEGACY_PRICE_UPLOAD_COLUMN_COUNT = 2;
 const PAGE_SIZE = 20;
 
 function sortRows(a: ProductMasterRow, b: ProductMasterRow): number {
+  const c = a.category.localeCompare(b.category, "ko");
+  if (c !== 0) return c;
   const g = a.productGroupName.localeCompare(b.productGroupName, "ko");
   if (g !== 0) return g;
   const p = a.productCode.localeCompare(b.productCode);
   if (p !== 0) return p;
-  const c = a.colorCode.localeCompare(b.colorCode);
-  if (c !== 0) return c;
+  const colorCmp = a.colorCode.localeCompare(b.colorCode);
+  if (colorCmp !== 0) return colorCmp;
   const s = a.sizeLabel.localeCompare(b.sizeLabel);
   if (s !== 0) return s;
   return a.productName.localeCompare(b.productName);
@@ -297,6 +315,7 @@ export function ProductMasterScreen() {
     setRegistryComboOpen(false);
     setRegistryComboHighlight(-1);
     setCommonDraft({
+      category: baseRow.category ?? "",
       productGroupCode: baseRow.productGroupCode,
       productGroupName: baseRow.productGroupName,
       productName: baseRow.productName,
@@ -414,6 +433,7 @@ export function ProductMasterScreen() {
     const ent = registryEntries.find((e) => e.id === registrySelectId)!;
     return colorOptions.map((option, index) => ({
       id: previousRows[index]?.id ?? `${baseId}-${index}`,
+      category: commonDraft.category.trim(),
       productGroupCode: ent.productGroupCode.trim(),
       productGroupName: ent.productGroupName.trim(),
       productName: commonDraft.productName.trim(),
@@ -468,7 +488,8 @@ export function ProductMasterScreen() {
 
     const headerCandidate = rows[0]!;
     const headerFirst = (headerCandidate[0] ?? "").trim();
-    const hasHeader = headerFirst === "상품군명" || headerFirst === "상품군코드";
+    const hasHeader =
+      headerFirst === "상품군명" || headerFirst === "상품군코드" || headerFirst === "카테고리";
     const headerRow = hasHeader ? trimCells(headerCandidate) : undefined;
     const bodyRows = hasHeader ? rows.slice(1) : rows;
     if (bodyRows.length === 0) {
@@ -483,7 +504,7 @@ export function ProductMasterScreen() {
       setUploadMessage({
         ok: false,
         message:
-          "파일 형식을 확인해 주세요. 신규 양식은 상품군명부터 9열, 구형은 상품군코드·명 포함 9열(소비자가 없음) 또는 10열입니다.",
+          "파일 형식을 확인해 주세요. 신규 양식은 맨 왼쪽 '카테고리' 열 포함 10열(상품군명 시작) 또는 11열(상품군코드 시작), 구형은 상품군명 9열·상품군코드 9/10열입니다.",
       });
       setUploadSummary(null);
       setUploadFailureDetails([]);
@@ -510,46 +531,69 @@ export function ProductMasterScreen() {
       let consumerPrice: number;
       let membershipPrice: number;
       let detailUrl: string;
+      let category = "";
 
-      if (layout === "name9") {
-        const parsedConsumer = parseMembershipPrice(cells[6] ?? "");
-        const parsedMembership = parseMembershipPrice(cells[7] ?? "");
+      if (layout === "name10") {
+        category = cells[0] ?? "";
+        const parsedConsumer = parseMembershipPrice(cells[7] ?? "");
+        const parsedMembership = parseMembershipPrice(cells[8] ?? "");
         if (parsedConsumer === null) {
           failCount += 1;
-          failures.push({
-            rowLabel: `${i + 1}행`,
-            reason: "소비자가 형식 오류",
-          });
+          failures.push({ rowLabel: `${i + 1}행`, reason: "소비자가 형식 오류" });
           continue;
         }
         if (parsedMembership === null) {
           failCount += 1;
-          failures.push({
-            rowLabel: `${i + 1}행`,
-            reason: "멤버십 가격 형식 오류",
-          });
+          failures.push({ rowLabel: `${i + 1}행`, reason: "멤버십 가격 형식 오류" });
+          continue;
+        }
+        consumerPrice = parsedConsumer;
+        membershipPrice = parsedMembership;
+        detailUrl = cells[9] ?? "";
+      } else if (layout === "name9") {
+        const parsedConsumer = parseMembershipPrice(cells[6] ?? "");
+        const parsedMembership = parseMembershipPrice(cells[7] ?? "");
+        if (parsedConsumer === null) {
+          failCount += 1;
+          failures.push({ rowLabel: `${i + 1}행`, reason: "소비자가 형식 오류" });
+          continue;
+        }
+        if (parsedMembership === null) {
+          failCount += 1;
+          failures.push({ rowLabel: `${i + 1}행`, reason: "멤버십 가격 형식 오류" });
           continue;
         }
         consumerPrice = parsedConsumer;
         membershipPrice = parsedMembership;
         detailUrl = cells[8] ?? "";
+      } else if (layout === "code11") {
+        category = cells[0] ?? "";
+        const parsedConsumer = parseMembershipPrice(cells[8] ?? "");
+        const parsedMembership = parseMembershipPrice(cells[9] ?? "");
+        if (parsedConsumer === null) {
+          failCount += 1;
+          failures.push({ rowLabel: `${i + 1}행`, reason: "소비자가 형식 오류" });
+          continue;
+        }
+        if (parsedMembership === null) {
+          failCount += 1;
+          failures.push({ rowLabel: `${i + 1}행`, reason: "멤버십 가격 형식 오류" });
+          continue;
+        }
+        consumerPrice = parsedConsumer;
+        membershipPrice = parsedMembership;
+        detailUrl = cells[10] ?? "";
       } else if (layout === "code10") {
         const parsedConsumer = parseMembershipPrice(cells[7] ?? "");
         const parsedMembership = parseMembershipPrice(cells[8] ?? "");
         if (parsedConsumer === null) {
           failCount += 1;
-          failures.push({
-            rowLabel: `${i + 1}행`,
-            reason: "소비자가 형식 오류",
-          });
+          failures.push({ rowLabel: `${i + 1}행`, reason: "소비자가 형식 오류" });
           continue;
         }
         if (parsedMembership === null) {
           failCount += 1;
-          failures.push({
-            rowLabel: `${i + 1}행`,
-            reason: "멤버십 가격 형식 오류",
-          });
+          failures.push({ rowLabel: `${i + 1}행`, reason: "멤버십 가격 형식 오류" });
           continue;
         }
         consumerPrice = parsedConsumer;
@@ -559,10 +603,7 @@ export function ProductMasterScreen() {
         const parsedMembership = parseMembershipPrice(cells[7] ?? "");
         if (parsedMembership === null) {
           failCount += 1;
-          failures.push({
-            rowLabel: `${i + 1}행`,
-            reason: "멤버십 가격 형식 오류",
-          });
+          failures.push({ rowLabel: `${i + 1}행`, reason: "멤버십 가격 형식 오류" });
           continue;
         }
         consumerPrice = 0;
@@ -574,8 +615,8 @@ export function ProductMasterScreen() {
         | ReturnType<typeof findRegistryExactMatch>
         | ReturnType<typeof findRegistryByNormalizedName>;
 
-      if (layout === "name9") {
-        const fileGroupName = cells[0] ?? "";
+      if (layout === "name10" || layout === "name9") {
+        const fileGroupName = layout === "name10" ? (cells[1] ?? "") : (cells[0] ?? "");
         const registryFailReason = resolveRegistryUploadFailureReasonByName(registryEntries, fileGroupName);
         if (registryFailReason) {
           failCount += 1;
@@ -587,8 +628,8 @@ export function ProductMasterScreen() {
         }
         canonicalGroup = findRegistryByNormalizedName(registryEntries, fileGroupName)!;
       } else {
-        const fileGroupCode = cells[0] ?? "";
-        const fileGroupName = cells[1] ?? "";
+        const fileGroupCode = layout === "code11" ? (cells[1] ?? "") : (cells[0] ?? "");
+        const fileGroupName = layout === "code11" ? (cells[2] ?? "") : (cells[1] ?? "");
         const registryFailReason = resolveRegistryUploadFailureReason(
           registryEntries,
           fileGroupCode,
@@ -607,14 +648,60 @@ export function ProductMasterScreen() {
           findRegistryByNormalizedName(registryEntries, fileGroupName)!;
       }
 
-      const productName = layout === "name9" ? cells[1] ?? "" : cells[2] ?? "";
-      const productCode = layout === "name9" ? cells[2] ?? "" : cells[3] ?? "";
-      const colorCode = layout === "name9" ? cells[3] ?? "" : cells[4] ?? "";
-      const sizeLabel = layout === "name9" ? cells[4] ?? "" : cells[5] ?? "";
-      const imageUrl = layout === "name9" ? cells[5] ?? "" : cells[6] ?? "";
+      const productName =
+        layout === "name10"
+          ? (cells[2] ?? "")
+          : layout === "name9"
+            ? (cells[1] ?? "")
+            : layout === "code11"
+              ? (cells[3] ?? "")
+              : layout === "code10"
+                ? (cells[2] ?? "")
+                : (cells[2] ?? "");
+      const productCode =
+        layout === "name10"
+          ? (cells[3] ?? "")
+          : layout === "name9"
+            ? (cells[2] ?? "")
+            : layout === "code11"
+              ? (cells[4] ?? "")
+              : layout === "code10"
+                ? (cells[3] ?? "")
+                : (cells[3] ?? "");
+      const colorCode =
+        layout === "name10"
+          ? (cells[4] ?? "")
+          : layout === "name9"
+            ? (cells[3] ?? "")
+            : layout === "code11"
+              ? (cells[5] ?? "")
+              : layout === "code10"
+                ? (cells[4] ?? "")
+                : (cells[4] ?? "");
+      const sizeLabel =
+        layout === "name10"
+          ? (cells[5] ?? "")
+          : layout === "name9"
+            ? (cells[4] ?? "")
+            : layout === "code11"
+              ? (cells[6] ?? "")
+              : layout === "code10"
+                ? (cells[5] ?? "")
+                : (cells[5] ?? "");
+      const imageUrl =
+        layout === "name10"
+          ? (cells[6] ?? "")
+          : layout === "name9"
+            ? (cells[5] ?? "")
+            : layout === "code11"
+              ? (cells[7] ?? "")
+              : layout === "code10"
+                ? (cells[6] ?? "")
+                : (cells[6] ?? "");
 
       const row: ProductMasterRow = {
         id: `pm-upload-${Date.now()}-${i}`,
+        category: category.trim(),
         productGroupCode: canonicalGroup.productGroupCode,
         productGroupName: canonicalGroup.productGroupName,
         productName,
@@ -840,6 +927,7 @@ export function ProductMasterScreen() {
     const header = FULL_UPLOAD_COLUMNS.join(",");
     const lines = safeRows.map((row) =>
       [
+        row.category,
         row.productGroupName,
         row.productName,
         row.productCode,
@@ -1024,8 +1112,9 @@ export function ProductMasterScreen() {
           <details className="mt-3 text-xs text-[#666666]">
             <summary className="cursor-pointer">보조 설명</summary>
             <p className="mt-2">
-              신규 컬럼(9열): 상품군명, 제품명, 제품코드, 색상코드, 사이즈, 이미지 URL, 소비자가, 멤버십 가격,
-              상세 URL. 구형 10열: 선두에 상품군코드·상품군명 추가. 구형 9열: 소비자가 없음 → 소비자가 0으로 처리.
+              신규 컬럼(10열): 맨 왼쪽 카테고리, 상품군명, 제품명, 제품코드, 색상코드, 사이즈, 이미지 URL, 소비자가,
+              멤버십 가격, 상세 URL. 구형 11열: 선두에 상품군코드·상품군명 추가. 구형 9열: 소비자가 없음 → 소비자가
+              0으로 처리.
             </p>
             <p className="mt-1">
               업로드 결과는 상품 마스터와 사용자 화면(source of truth)에 동시에 반영됩니다.
@@ -1132,6 +1221,7 @@ export function ProductMasterScreen() {
         <table className="w-full min-w-[960px] border-collapse text-left">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
+              <th className={thCls}>카테고리</th>
               <th className={thCls}>상품군명</th>
               <th className={thCls}>제품명</th>
               <th className={thCls}>제품코드</th>
@@ -1147,7 +1237,7 @@ export function ProductMasterScreen() {
           <tbody>
             {sortedFilteredRows.length === 0 ? (
               <tr>
-                <td className="px-3 py-10 text-center text-sm text-[#888888]" colSpan={10}>
+                <td className="px-3 py-10 text-center text-sm text-[#888888]" colSpan={11}>
                   조건에 맞는 행이 없습니다.
                 </td>
               </tr>
@@ -1161,12 +1251,13 @@ export function ProductMasterScreen() {
                   <Fragment key={row.id}>
                     {showGroupHeader ? (
                       <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-                        <td colSpan={10} className="px-3 py-2 text-xs font-medium text-[#666666]">
+                        <td colSpan={11} className="px-3 py-2 text-xs font-medium text-[#666666]">
                           {row.productGroupName}
                         </td>
                       </tr>
                     ) : null}
                     <tr className="border-b border-[#E5E5E5] last:border-b-0">
+                      <td className={tdCls}>{row.category || "—"}</td>
                       <td className={tdCls}>{row.productGroupName}</td>
                       <td className={tdCls}>{row.productName}</td>
                       <td className={`${tdCls} font-mono`}>{row.productCode}</td>
@@ -1395,6 +1486,21 @@ export function ProductMasterScreen() {
                     주세요.
                   </p>
                 ) : null}
+              </div>
+              <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+                <label htmlFor="pm-d-cat" className="text-xs text-[#888888]">
+                  카테고리 (진열·사용자 화면 순서 기준)
+                </label>
+                <input
+                  id="pm-d-cat"
+                  value={commonDraft.category}
+                  onChange={(e) => setCommonDraft((d) => ({ ...d, category: e.target.value }))}
+                  placeholder="예: 데스크, 의자"
+                  className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-sm text-[#111111] placeholder:text-[#888888]"
+                />
+                <p className="text-[11px] text-[#666666]">
+                  비우거나 목록에 없는 값은 기타(맨 뒤)로 정렬됩니다.
+                </p>
               </div>
               <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
                 <label htmlFor="pm-d-pn" className="text-xs text-[#888888]">

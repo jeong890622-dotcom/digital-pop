@@ -6,6 +6,7 @@ import { getSupabaseClient } from "./supabase";
 /** Supabase product_master 행 (DB 컬럼명 그대로) */
 export type ProductMasterDbRow = {
   id: string;
+  category: string | null;
   product_group_code: string;
   product_group_name: string;
   product_name: string;
@@ -21,6 +22,7 @@ export type ProductMasterDbRow = {
 export function fromDbRow(row: ProductMasterDbRow): ProductMasterRow {
   return {
     id: row.id,
+    category: (row.category ?? "").trim(),
     productGroupCode: row.product_group_code ?? "",
     productGroupName: row.product_group_name ?? "",
     productName: row.product_name ?? "",
@@ -43,6 +45,7 @@ export function fromDbRow(row: ProductMasterDbRow): ProductMasterRow {
 export function toDbRow(row: ProductMasterRow): ProductMasterDbRow {
   return {
     id: row.id,
+    category: (row.category ?? "").trim() || null,
     product_group_code: row.productGroupCode ?? "",
     product_group_name: row.productGroupName ?? "",
     product_name: row.productName ?? "",
@@ -70,7 +73,7 @@ export async function fetchAllProductMaster(): Promise<ProductMasterRow[]> {
     const { data, error } = await client
       .from("product_master")
       .select(
-        "id, product_group_code, product_group_name, product_name, product_code, color_code, size_label, image_url, consumer_price, membership_price, detail_url",
+        "id, category, product_group_code, product_group_name, product_name, product_code, color_code, size_label, image_url, consumer_price, membership_price, detail_url",
       )
       .order("product_group_name", { ascending: true })
       .order("product_code", { ascending: true })

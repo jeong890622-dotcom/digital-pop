@@ -2,6 +2,7 @@ import type { ProductOption } from "../_types/productDetail";
 import type { ProductGroupOptionRule } from "../_types/productGroupOption";
 import { INITIAL_PRODUCT_MASTER_ROWS, type ProductMasterRow } from "./mockProductMaster";
 import type { StoreOperationRow } from "../_lib/storeOperationStore";
+import { displayCategoryRank } from "../_lib/productCategoryDisplayOrder";
 import { MOCK_STORES } from "./adminNavigation";
 
 export type Zone = {
@@ -250,6 +251,34 @@ export function buildVariantOptionsFromMasterGroupRows(groupedRows: ProductMaste
   return { colors, sizes, hasSize, skuImageMap };
 }
 
+/** 동일 zone 묶음 내 진열 행 정렬: 수동 sortOrder 우선, 없으면 카테고리·코드 순. */
+export function sortMerchandisingRowsForDisplay(
+  rows: StoreOperationRow[],
+  rowByCodeColor: Map<string, ProductMasterRow>,
+): StoreOperationRow[] {
+  const keyFor = (r: StoreOperationRow) =>
+    `${r.productCode.trim().toLowerCase()}|${r.colorCode.trim().toLowerCase()}`;
+  return [...rows].sort((a, b) => {
+    const aExplicit = typeof a.sortOrder === "number" && Number.isFinite(a.sortOrder);
+    const bExplicit = typeof b.sortOrder === "number" && Number.isFinite(b.sortOrder);
+    if (aExplicit && bExplicit && a.sortOrder !== b.sortOrder) {
+      return (a.sortOrder as number) - (b.sortOrder as number);
+    }
+    if (aExplicit && !bExplicit) return -1;
+    if (!aExplicit && bExplicit) return 1;
+
+    const catA = rowByCodeColor.get(keyFor(a))?.category?.trim() ?? "";
+    const catB = rowByCodeColor.get(keyFor(b))?.category?.trim() ?? "";
+    const rankA = displayCategoryRank(catA);
+    const rankB = displayCategoryRank(catB);
+    if (rankA !== rankB) return rankA - rankB;
+    if (catA !== catB) return catA.localeCompare(catB, "ko");
+    const codeCmp = a.productCode.localeCompare(b.productCode, "ko");
+    if (codeCmp !== 0) return codeCmp;
+    return a.colorCode.localeCompare(b.colorCode, "ko");
+  });
+}
+
 function buildProductsFromMasterRows(
   rows: ProductMasterRow[],
   storeId: string,
@@ -291,7 +320,8 @@ function buildProductsFromMasterRows(
     }
 
     let seq = 1;
-    return [...uniqueMerch.values()].map((merchRow) => {
+    const sortedMerch = sortMerchandisingRowsForDisplay([...uniqueMerch.values()], rowByCodeColor);
+    return sortedMerch.map((merchRow) => {
       const codeRows = rowsByProductCode.get(merchRow.productCode.trim().toLowerCase()) ?? [];
       const base =
         rowByCodeColor.get(
@@ -525,6 +555,8 @@ export function buildStoreCatalogFromProductMasterRows(
       zone: row.zone.trim(),
       productCode: row.productCode.trim(),
       colorCode: row.colorCode.trim(),
+      sortOrder:
+        typeof row.sortOrder === "number" && Number.isFinite(row.sortOrder) ? row.sortOrder : null,
     }))
     .filter((row) => row.zone && row.productCode && row.colorCode);
   const hasMerchandising = normalizedMerchandisingRows.length > 0;

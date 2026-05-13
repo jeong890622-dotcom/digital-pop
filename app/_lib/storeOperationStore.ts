@@ -11,6 +11,12 @@ export type StoreOperationRow = {
   zone: string;
   productCode: string;
   colorCode: string;
+  /**
+   * 동일 zone 내 사용자 화면 노출 순서.
+   * null 이면 상품 마스터 카테고리 순(고정 목록)으로 정렬.
+   * 숫자가 있으면 해당 zone에서 수동(드래그) 순서가 적용된 것으로 본다.
+   */
+  sortOrder: number | null;
 };
 
 export type StoreOperationRowsByStore = Record<string, StoreOperationRow[]>;
@@ -37,6 +43,8 @@ function normalizeRowsByStore(
         zone: row.zone?.trim() || "",
         productCode: row.productCode?.trim() || "",
         colorCode: row.colorCode?.trim() || "",
+        sortOrder:
+          typeof row.sortOrder === "number" && Number.isFinite(row.sortOrder) ? row.sortOrder : null,
       }))
       .filter((row) => row.zone && row.productCode && row.colorCode);
   }

@@ -1,13 +1,33 @@
 "use client";
 
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { adminHref } from "../../_components/admin/adminHref";
 import { MOCK_STORE_ADMIN_STORE_ID } from "../../_data/adminNavigation";
+import type { ProductMasterRow } from "../../_data/mockProductMaster";
+import { sortMerchandisingRowsForDisplay } from "../../_data/mockProducts";
 import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
+import { useProductMasterRows } from "../../_lib/productMasterStore";
 import { readUploadTextFile } from "../../_lib/readUploadTextFile";
-import { useStoreOperationRows } from "../../_lib/storeOperationStore";
+import { useStoreOperationRows, type StoreOperationRow } from "../../_lib/storeOperationStore";
 import {
   useStoreZoneQrs,
   type ZoneQrByStore,
@@ -17,12 +37,6 @@ import { fetchStores, type StoreRow } from "../../_lib/supabaseAdmin";
 import type { AdminRole } from "../../_types/admin";
 
 type OperationTabId = "merchandising" | "qr" | "managers";
-type ZoneMerchRow = {
-  storeId: string;
-  zone: string;
-  productCode: string;
-  colorCode: string;
-};
 type UploadSummary = {
   successCount: number;
   failCount: number;
@@ -32,6 +46,95 @@ type UploadSummary = {
 type ZoneRowSortOption = "zone-asc" | "zone-desc" | "product-asc" | "product-desc";
 
 const ZONE_MERCH_COLUMNS = ["ZONE", "제품코드", "색상"] as const;
+
+function operationRowId(row: StoreOperationRow): string {
+  return `${row.zone}|${row.productCode}|${row.colorCode}`;
+}
+
+type MerchRowActionsProps = {
+  row: StoreOperationRow;
+  onEdit: (row: StoreOperationRow) => void;
+  onDelete: (row: StoreOperationRow) => void;
+};
+
+function MerchStaticTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) {
+  return (
+    <tr className="border-b border-[#E5E5E5] last:border-b-0 bg-white">
+      <td className="w-10 px-3 py-2 text-center text-xs text-[#CCCCCC]">—</td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.zone}</td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.productCode}</td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.colorCode}</td>
+      <td className="px-3 py-2 text-xs">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onEdit(row)}
+            className="text-[#111111] underline-offset-2 hover:underline"
+          >
+            수정
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(row)}
+            className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+          >
+            삭제
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function MerchSortableTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: operationRowId(row),
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={`border-b border-[#E5E5E5] last:border-b-0 bg-white ${isDragging ? "opacity-70" : ""}`}
+    >
+      <td className="w-10 px-3 py-2 text-center">
+        <button
+          type="button"
+          className="cursor-grab text-[#888888] hover:text-[#111111] active:cursor-grabbing"
+          aria-label="순서 변경"
+          {...attributes}
+          {...listeners}
+        >
+          ⋮⋮
+        </button>
+      </td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.zone}</td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.productCode}</td>
+      <td className="px-3 py-2 text-sm text-[#111111]">{row.colorCode}</td>
+      <td className="px-3 py-2 text-xs">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => onEdit(row)}
+            className="text-[#111111] underline-offset-2 hover:underline"
+          >
+            수정
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(row)}
+            className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+          >
+            삭제
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 function parseRole(raw: string | null): AdminRole {
   return raw === "store" ? "store" : "master";
@@ -116,6 +219,17 @@ export default function AdminOperationsPage() {
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [savedRowsByStore, setSavedRowsByStore] = useStoreOperationRows();
+  const [productMasterRows] = useProductMasterRows();
+  const masterRowByCodeColor = useMemo(() => {
+    const m = new Map<string, ProductMasterRow>();
+    for (const row of productMasterRows) {
+      m.set(
+        `${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`,
+        row,
+      );
+    }
+    return m;
+  }, [productMasterRows]);
   const [entryModalMode, setEntryModalMode] = useState<"create" | "edit" | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [zoneDraft, setZoneDraft] = useState("");
@@ -129,6 +243,13 @@ export default function AdminOperationsPage() {
   const [qrUrlDraft, setQrUrlDraft] = useState("");
   const [zoneFilter, setZoneFilter] = useState("all");
   const [zoneRowSort, setZoneRowSort] = useState<ZoneRowSortOption>("zone-asc");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
 
   const zoneRows = useMemo(
     () => savedRowsByStore[selectedStoreId] ?? [],
@@ -149,23 +270,73 @@ export default function AdminOperationsPage() {
         ? zoneRows
         : zoneRows.filter((row) => row.zone.trim().toLowerCase() === zoneFilter.toLowerCase());
 
-    const sorted = [...filtered];
-    sorted.sort((a, b) => {
-      if (zoneRowSort === "zone-asc") {
-        return a.zone.localeCompare(b.zone);
-      }
-      if (zoneRowSort === "zone-desc") {
-        return b.zone.localeCompare(a.zone);
-      }
-      if (zoneRowSort === "product-asc") {
-        const byProduct = a.productCode.localeCompare(b.productCode);
+    if (zoneFilter === "all") {
+      const sorted = [...filtered];
+      sorted.sort((a, b) => {
+        if (zoneRowSort === "zone-asc") {
+          return a.zone.localeCompare(b.zone);
+        }
+        if (zoneRowSort === "zone-desc") {
+          return b.zone.localeCompare(a.zone);
+        }
+        if (zoneRowSort === "product-asc") {
+          const byProduct = a.productCode.localeCompare(b.productCode);
+          return byProduct !== 0 ? byProduct : a.zone.localeCompare(b.zone);
+        }
+        const byProduct = b.productCode.localeCompare(a.productCode);
         return byProduct !== 0 ? byProduct : a.zone.localeCompare(b.zone);
+      });
+      return sorted;
+    }
+
+    return sortMerchandisingRowsForDisplay(filtered, masterRowByCodeColor);
+  }, [zoneFilter, zoneRowSort, zoneRows, masterRowByCodeColor]);
+
+  const handleMerchDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (zoneFilter === "all") return;
+      if (!over || active.id === over.id) return;
+
+      const storeRows = savedRowsByStore[selectedStoreId] ?? [];
+      const zf = zoneFilter.trim().toLowerCase();
+      const inZone = storeRows.filter((r) => r.zone.trim().toLowerCase() === zf);
+      const sortedInZone = sortMerchandisingRowsForDisplay(inZone, masterRowByCodeColor);
+
+      const oldIndex = sortedInZone.findIndex((r) => operationRowId(r) === String(active.id));
+      const newIndex = sortedInZone.findIndex((r) => operationRowId(r) === String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+
+      const moved = arrayMove(sortedInZone, oldIndex, newIndex);
+      const reassigned = moved.map((r, i) => ({ ...r, sortOrder: i }));
+
+      let injected = false;
+      const next: StoreOperationRow[] = [];
+      for (const r of storeRows) {
+        if (r.zone.trim().toLowerCase() === zf) {
+          if (!injected) {
+            next.push(...reassigned);
+            injected = true;
+          }
+          continue;
+        }
+        next.push(r);
       }
-      const byProduct = b.productCode.localeCompare(a.productCode);
-      return byProduct !== 0 ? byProduct : a.zone.localeCompare(b.zone);
-    });
-    return sorted;
-  }, [zoneFilter, zoneRowSort, zoneRows]);
+
+      setSavedRowsByStore({ ...savedRowsByStore, [selectedStoreId]: next });
+    },
+    [masterRowByCodeColor, savedRowsByStore, selectedStoreId, setSavedRowsByStore, zoneFilter],
+  );
+
+  const resetZoneMerchToCategoryOrder = useCallback(() => {
+    if (zoneFilter === "all") return;
+    const zf = zoneFilter.trim().toLowerCase();
+    const storeRows = savedRowsByStore[selectedStoreId] ?? [];
+    const next = storeRows.map((r) =>
+      r.zone.trim().toLowerCase() === zf ? { ...r, sortOrder: null } : r,
+    );
+    setSavedRowsByStore({ ...savedRowsByStore, [selectedStoreId]: next });
+  }, [savedRowsByStore, selectedStoreId, setSavedRowsByStore, zoneFilter]);
 
   const tabs = useMemo(
     () =>
@@ -222,7 +393,7 @@ export default function AdminOperationsPage() {
       return;
     }
 
-    const parsed: ZoneMerchRow[] = [];
+    const parsed: StoreOperationRow[] = [];
     let failCount = 0;
     for (const line of bodyLines) {
       const cells = splitUploadLine(line);
@@ -230,11 +401,12 @@ export default function AdminOperationsPage() {
         failCount += 1;
         continue;
       }
-      const row = {
+      const row: StoreOperationRow = {
         storeId: selectedStoreId,
         zone: (cells[0] ?? "").trim(),
         productCode: (cells[1] ?? "").trim(),
         colorCode: (cells[2] ?? "").trim(),
+        sortOrder: null,
       };
       if (!row.zone || !row.productCode || !row.colorCode) {
         failCount += 1;
@@ -247,15 +419,19 @@ export default function AdminOperationsPage() {
     const prevMap = new Map(prevRows.map((row) => [`${row.zone}|${row.productCode}|${row.colorCode}`, row]));
     let createdCount = 0;
     let updatedCount = 0;
-    const dedup = new Map<string, ZoneMerchRow>();
+    const dedup = new Map<string, StoreOperationRow>();
     for (const row of parsed) {
       const key = `${row.zone}|${row.productCode}|${row.colorCode}`;
+      const prev = prevMap.get(key);
       if (prevMap.has(key)) {
         updatedCount += 1;
       } else {
         createdCount += 1;
       }
-      dedup.set(key, row);
+      dedup.set(key, {
+        ...row,
+        sortOrder: prev?.sortOrder ?? null,
+      });
     }
     const nextRows = [...dedup.values()];
     setSavedRowsByStore({ ...savedRowsByStore, [selectedStoreId]: nextRows });
@@ -278,7 +454,7 @@ export default function AdminOperationsPage() {
     setEntryError(null);
   };
 
-  const openEditEntryModal = (row: ZoneMerchRow) => {
+  const openEditEntryModal = (row: StoreOperationRow) => {
     setEntryModalMode("edit");
     setEditingKey(`${row.zone}|${row.productCode}|${row.colorCode}`);
     setZoneDraft(row.zone);
@@ -324,10 +500,14 @@ export default function AdminOperationsPage() {
             zone: nextZone,
             productCode: nextProductCode,
             colorCode: nextColorCode,
+            sortOrder: null,
           },
         ],
       });
     } else if (entryModalMode === "edit" && editingKey) {
+      const oldRow = zoneRows.find(
+        (row) => `${row.zone}|${row.productCode}|${row.colorCode}` === editingKey,
+      );
       setSavedRowsByStore({
         ...savedRowsByStore,
         [selectedStoreId]: zoneRows.map((row) =>
@@ -337,6 +517,7 @@ export default function AdminOperationsPage() {
                 zone: nextZone,
                 productCode: nextProductCode,
                 colorCode: nextColorCode,
+                sortOrder: oldRow?.sortOrder ?? null,
               }
             : row,
         ),
@@ -345,7 +526,7 @@ export default function AdminOperationsPage() {
     closeEntryModal();
   };
 
-  const deleteEntry = (row: ZoneMerchRow) => {
+  const deleteEntry = (row: StoreOperationRow) => {
     setDeletePolicyMessage(null);
     if (role === "store") {
       const zoneRowsCount = zoneRows.filter((item) => item.zone === row.zone).length;
@@ -650,7 +831,9 @@ export default function AdminOperationsPage() {
               </p>
               <p className="mt-1 text-xs text-[#666666]">
                 매장별 ZONE·제품코드·색상 편성 데이터는 사용자 화면에서 ZONE 선택 시 상품 마스터
-                정보를 조회하는 기준으로 사용됩니다.
+                정보를 조회하는 기준으로 사용됩니다. 동일 ZONE 내 노출 순서는 상품 마스터 카테고리 순이 기본이며,
+                ZONE을 하나만 선택하면 드래그로 수동 순서를 저장할 수 있습니다. CSV 재업로드 시 기존 행의 수동
+                순서는 유지됩니다.
               </p>
             </section>
 
@@ -673,7 +856,7 @@ export default function AdminOperationsPage() {
 
             <div className="mt-4 overflow-x-auto rounded-sm border border-[#E5E5E5]">
               <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#E5E5E5] bg-white px-3 py-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <label htmlFor="zone-filter-select" className="text-xs text-[#666666]">
                     ZONE 필터
                   </label>
@@ -691,15 +874,25 @@ export default function AdminOperationsPage() {
                     ))}
                   </select>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {zoneFilter !== "all" ? (
+                    <button
+                      type="button"
+                      onClick={resetZoneMerchToCategoryOrder}
+                      className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-[#111111] hover:bg-[#F5F5F5]"
+                    >
+                      이 ZONE 순서를 카테고리 자동으로
+                    </button>
+                  ) : null}
                   <label htmlFor="zone-sort-select" className="text-xs text-[#666666]">
                     정렬
                   </label>
                   <select
                     id="zone-sort-select"
                     value={zoneRowSort}
+                    disabled={zoneFilter !== "all"}
                     onChange={(e) => setZoneRowSort(e.target.value as ZoneRowSortOption)}
-                    className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-[#111111]"
+                    className="rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-[#111111] disabled:opacity-40"
                   >
                     <option value="zone-asc">ZONE 오름차순</option>
                     <option value="zone-desc">ZONE 내림차순</option>
@@ -708,56 +901,59 @@ export default function AdminOperationsPage() {
                   </select>
                 </div>
               </div>
-              <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
-                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">ZONE</th>
-                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품코드</th>
-                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">색상</th>
-                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">관리</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleZoneRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-3 py-8 text-center text-xs text-[#888888]">
-                        {zoneRows.length === 0
-                          ? "등록된 편성 데이터가 없습니다."
-                          : "선택한 조건에 맞는 데이터가 없습니다."}
-                      </td>
+              {zoneFilter !== "all" ? (
+                <p className="border-b border-[#E5E5E5] bg-white px-3 py-2 text-[11px] text-[#666666]">
+                  왼쪽 ⋮⋮ 핸들을 드래그해 순서를 바꿉니다. 사용자 화면과 동일한 기준(수동 순서 우선, 없으면
+                  카테고리·코드 순)으로 표시됩니다.
+                </p>
+              ) : null}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMerchDragEnd}>
+                <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
+                      <th className="w-10 px-3 py-2 text-center text-xs font-medium text-[#666666]">순서</th>
+                      <th className="px-3 py-2 text-xs font-medium text-[#666666]">ZONE</th>
+                      <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품코드</th>
+                      <th className="px-3 py-2 text-xs font-medium text-[#666666]">색상</th>
+                      <th className="px-3 py-2 text-xs font-medium text-[#666666]">관리</th>
                     </tr>
-                  ) : (
-                    visibleZoneRows.map((row) => (
-                      <tr
-                        key={`${row.zone}-${row.productCode}-${row.colorCode}`}
-                        className="border-b border-[#E5E5E5] last:border-b-0"
-                      >
-                        <td className="px-3 py-2 text-sm text-[#111111]">{row.zone}</td>
-                        <td className="px-3 py-2 text-sm text-[#111111]">{row.productCode}</td>
-                        <td className="px-3 py-2 text-sm text-[#111111]">{row.colorCode}</td>
-                        <td className="px-3 py-2 text-xs">
-                          <div className="flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => openEditEntryModal(row)}
-                              className="text-[#111111] underline-offset-2 hover:underline"
-                            >
-                              수정
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteEntry(row)}
-                              className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
-                            >
-                              삭제
-                            </button>
-                          </div>
+                  </thead>
+                  <tbody>
+                    {visibleZoneRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-8 text-center text-xs text-[#888888]">
+                          {zoneRows.length === 0
+                            ? "등록된 편성 데이터가 없습니다."
+                            : "선택한 조건에 맞는 데이터가 없습니다."}
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : zoneFilter === "all" ? (
+                      visibleZoneRows.map((row) => (
+                        <MerchStaticTableRow
+                          key={operationRowId(row)}
+                          row={row}
+                          onEdit={openEditEntryModal}
+                          onDelete={deleteEntry}
+                        />
+                      ))
+                    ) : (
+                      <SortableContext
+                        items={visibleZoneRows.map(operationRowId)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {visibleZoneRows.map((row) => (
+                          <MerchSortableTableRow
+                            key={operationRowId(row)}
+                            row={row}
+                            onEdit={openEditEntryModal}
+                            onDelete={deleteEntry}
+                          />
+                        ))}
+                      </SortableContext>
+                    )}
+                  </tbody>
+                </table>
+              </DndContext>
             </div>
 
             {entryModalMode ? (

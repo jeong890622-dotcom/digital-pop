@@ -1,6 +1,11 @@
 /** 마스터 1행 = 1 SKU (mock) */
 export type ProductMasterRow = {
   id: string;
+  /**
+   * 사용자 화면 동일 zone 내 기본 정렬에 사용 (예: 데스크, 소파, …).
+   * 비어 있으면 기타 순위로 묶인다.
+   */
+  category: string;
   productGroupCode: string;
   productGroupName: string;
   productName: string;
@@ -17,6 +22,7 @@ export type ProductMasterRow = {
 export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   {
     id: "pm-001",
+    category: "데스크",
     productGroupCode: "PG-DESK-BASIC",
     productGroupName: "데스커 베이직 데스크",
     productName: "데스커 베이직 데스크 1400 · 화이트",
@@ -30,6 +36,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-002",
+    category: "데스크",
     productGroupCode: "PG-DESK-BASIC",
     productGroupName: "데스커 베이직 데스크",
     productName: "데스커 베이직 데스크 1400 · 블랙",
@@ -43,6 +50,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-003",
+    category: "데스크",
     productGroupCode: "PG-DESK-BASIC",
     productGroupName: "데스커 베이직 데스크",
     productName: "데스커 베이직 데스크 1600 · 화이트",
@@ -56,6 +64,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-004",
+    category: "데스크",
     productGroupCode: "PG-DESK-BASIC",
     productGroupName: "데스커 베이직 데스크",
     productName: "데스커 베이직 데스크 1600 · 우드",
@@ -69,6 +78,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-005",
+    category: "의자",
     productGroupCode: "PG-CHR-ERGO",
     productGroupName: "데스커 에르고 체어",
     productName: "데스커 에르고 체어 · 그레이",
@@ -82,6 +92,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-006",
+    category: "의자",
     productGroupCode: "PG-CHR-ERGO",
     productGroupName: "데스커 에르고 체어",
     productName: "데스커 에르고 체어 · 블랙",
@@ -95,6 +106,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-007",
+    category: "의자",
     productGroupCode: "PG-CHR-TASK",
     productGroupName: "데스커 태스크 체어",
     productName: "데스커 태스크 체어 · 그레이",
@@ -108,6 +120,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-008",
+    category: "서랍",
     productGroupCode: "PG-STO-3D",
     productGroupName: "데스커 3단 서랍장",
     productName: "데스커 3단 서랍장 400 · 화이트",
@@ -121,6 +134,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-009",
+    category: "서랍",
     productGroupCode: "PG-STO-3D",
     productGroupName: "데스커 3단 서랍장",
     productName: "데스커 3단 서랍장 800 · 화이트",
@@ -134,6 +148,7 @@ export const INITIAL_PRODUCT_MASTER_ROWS: ProductMasterRow[] = [
   },
   {
     id: "pm-010",
+    category: "",
     productGroupCode: "PG-LGT-FLOOR",
     productGroupName: "데스커 플로어 조명",
     productName: "데스커 플로어 조명 · 화이트",

@@ -37,6 +37,7 @@ function normalizeRows(rows: ProductMasterRow[]): ProductMasterRow[] {
         : 0;
     return {
       ...row,
+      category: typeof row.category === "string" ? row.category.trim() : "",
       consumerPrice,
       imageUrl: isRenderableImageUrl(row.imageUrl) ? row.imageUrl : "/window.svg",
     };

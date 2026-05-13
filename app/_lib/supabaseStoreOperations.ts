@@ -16,6 +16,7 @@ export type StoreZoneMerchandisingDbRow = {
   zone: string;
   product_code: string;
   color_code: string;
+  sort_order: number | null;
 };
 
 function buildMerchandisingId(row: {
@@ -28,11 +29,14 @@ function buildMerchandisingId(row: {
 }
 
 function merchandisingFromDb(row: StoreZoneMerchandisingDbRow): StoreOperationRow {
+  const so = row.sort_order;
   return {
     storeId: row.store_id ?? "",
     zone: row.zone ?? "",
     productCode: row.product_code ?? "",
     colorCode: row.color_code ?? "",
+    sortOrder:
+      typeof so === "number" && Number.isFinite(so) ? so : null,
   };
 }
 
@@ -43,6 +47,8 @@ function merchandisingToDb(row: StoreOperationRow): StoreZoneMerchandisingDbRow 
     zone: (row.zone ?? "").trim(),
     product_code: (row.productCode ?? "").trim(),
     color_code: (row.colorCode ?? "").trim(),
+    sort_order:
+      typeof row.sortOrder === "number" && Number.isFinite(row.sortOrder) ? row.sortOrder : null,
   };
 }
 
@@ -56,7 +62,7 @@ export async function fetchAllStoreMerchandising(): Promise<StoreOperationRowsBy
     const to = from + FETCH_PAGE_SIZE - 1;
     const { data, error } = await client
       .from("store_zone_merchandising")
-      .select("id, store_id, zone, product_code, color_code")
+      .select("id, store_id, zone, product_code, color_code, sort_order")
       .order("store_id", { ascending: true })
       .order("zone", { ascending: true })
       .order("product_code", { ascending: true })
