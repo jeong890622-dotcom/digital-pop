@@ -57,6 +57,8 @@ export default function ProductGroupOptionsPage() {
   const [draft, setDraft] = useState<RuleDraft>(EMPTY_DRAFT);
   const [message, setMessage] = useState<string | null>(null);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [editingSizeLabel, setEditingSizeLabel] = useState("");
+  const [editingOptionName, setEditingOptionName] = useState("");
   const [editingSortOrder, setEditingSortOrder] = useState<string>("");
   const [groupNameSearch, setGroupNameSearch] = useState("");
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
@@ -264,32 +266,74 @@ export default function ProductGroupOptionsPage() {
 
   const removeRule = (id: string) => {
     setRules(rules.filter((rule) => rule.id !== id));
+    if (editingRuleId === id) {
+      setEditingRuleId(null);
+      setEditingSizeLabel("");
+      setEditingOptionName("");
+      setEditingSortOrder("");
+    }
     setMessage("옵션을 삭제했습니다.");
   };
 
-  const startEditSortOrder = (rule: ProductGroupOptionRule) => {
+  const startEditRule = (rule: ProductGroupOptionRule) => {
     setEditingRuleId(rule.id);
+    setEditingSizeLabel(rule.sizeLabel);
+    setEditingOptionName(rule.optionName);
     setEditingSortOrder(String(rule.sortOrder));
     setMessage(null);
   };
 
-  const cancelEditSortOrder = () => {
+  const cancelEditRule = () => {
     setEditingRuleId(null);
+    setEditingSizeLabel("");
+    setEditingOptionName("");
     setEditingSortOrder("");
   };
 
-  const saveSortOrder = (id: string) => {
+  const saveRule = (id: string) => {
+    const sizeLabel = editingSizeLabel.trim();
+    const optionName = editingOptionName.trim();
+    if (!sizeLabel) {
+      setMessage("사이즈를 입력해 주세요.");
+      return;
+    }
+    if (!optionName) {
+      setMessage("옵션명을 입력해 주세요.");
+      return;
+    }
     const nextOrder = Number(editingSortOrder);
     if (!Number.isFinite(nextOrder)) {
       setMessage("정렬순서는 숫자만 입력해 주세요.");
       return;
     }
+    const current = rules.find((r) => r.id === id);
+    if (!current) {
+      return;
+    }
+    const duplicated = rules.some(
+      (rule) =>
+        rule.id !== id &&
+        rule.groupName === current.groupName &&
+        rule.sizeLabel === sizeLabel &&
+        rule.optionName.toLowerCase() === optionName.toLowerCase() &&
+        rule.linkedProductCode.toLowerCase() === current.linkedProductCode.trim().toLowerCase(),
+    );
+    if (duplicated) {
+      setMessage("동일한 상품군/사이즈/옵션/제품코드 조합이 이미 있습니다.");
+      return;
+    }
     setRules(
-      rules.map((rule) => (rule.id === id ? { ...rule, sortOrder: nextOrder } : rule)),
+      rules.map((rule) =>
+        rule.id === id
+          ? { ...rule, sizeLabel, optionName, sortOrder: nextOrder }
+          : rule,
+      ),
     );
     setEditingRuleId(null);
+    setEditingSizeLabel("");
+    setEditingOptionName("");
     setEditingSortOrder("");
-    setMessage("정렬순서를 수정했습니다.");
+    setMessage("옵션을 수정했습니다.");
   };
 
   return (
@@ -473,8 +517,32 @@ export default function ProductGroupOptionsPage() {
                       .sort((a, b) => a.sortOrder - b.sortOrder || a.optionName.localeCompare(b.optionName))
                       .map((rule) => (
                         <tr key={rule.id} className="border-b border-[#E5E5E5] last:border-b-0">
-                          <td className="px-2 py-2 text-xs text-[#666666]">{rule.sizeLabel}</td>
-                          <td className="px-2 py-2 text-xs text-[#111111]">{rule.optionName}</td>
+                          <td className="px-2 py-2 text-xs text-[#666666]">
+                            {editingRuleId === rule.id ? (
+                              <input
+                                type="text"
+                                value={editingSizeLabel}
+                                onChange={(e) => setEditingSizeLabel(e.target.value)}
+                                aria-label="사이즈 수정"
+                                className="w-full min-w-[140px] max-w-[280px] rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-[#111111]"
+                              />
+                            ) : (
+                              rule.sizeLabel
+                            )}
+                          </td>
+                          <td className="px-2 py-2 text-xs text-[#111111]">
+                            {editingRuleId === rule.id ? (
+                              <input
+                                type="text"
+                                value={editingOptionName}
+                                onChange={(e) => setEditingOptionName(e.target.value)}
+                                aria-label="옵션명 수정"
+                                className="w-full min-w-[140px] max-w-[280px] rounded-sm border border-[#E5E5E5] bg-white px-2 py-1.5 text-xs text-[#111111]"
+                              />
+                            ) : (
+                              rule.optionName
+                            )}
+                          </td>
                           <td className="px-2 py-2 text-xs font-mono text-[#666666]">
                             {rule.linkedProductCode}
                           </td>
@@ -498,14 +566,14 @@ export default function ProductGroupOptionsPage() {
                               <>
                                 <button
                                   type="button"
-                                  onClick={() => saveSortOrder(rule.id)}
+                                  onClick={() => saveRule(rule.id)}
                                   className="mr-3 text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
                                 >
                                   저장
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={cancelEditSortOrder}
+                                  onClick={cancelEditRule}
                                   className="mr-3 text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
                                 >
                                   취소
@@ -514,7 +582,7 @@ export default function ProductGroupOptionsPage() {
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => startEditSortOrder(rule)}
+                                onClick={() => startEditRule(rule)}
                                 className="mr-3 text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
                               >
                                 수정

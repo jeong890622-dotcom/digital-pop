@@ -131,3 +131,15 @@ export function useStoreOperationRows(): [
   );
   return [rowsByStore, setRowsByStore];
 }
+
+/** Supabase 진열 hydrate 완료 여부(고객 화면에서 로딩 구분용) */
+export function useStoreOperationHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeStoreOperationRows,
+    () => {
+      hydrate();
+      return hydrated;
+    },
+    () => false,
+  );
+}

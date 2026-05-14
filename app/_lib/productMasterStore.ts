@@ -131,3 +131,15 @@ export function useProductMasterRows(): [
   );
   return [rows, setRows];
 }
+
+/** Supabase 상품 마스터 hydrate 완료 여부(고객 화면에서 로딩 구분용) */
+export function useProductMasterHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeProductMasterRows,
+    () => {
+      hydrate();
+      return hydrated;
+    },
+    () => false,
+  );
+}

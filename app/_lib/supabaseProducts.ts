@@ -62,32 +62,81 @@ export function toDbRow(row: ProductMasterRow): ProductMasterDbRow {
 const FETCH_PAGE_SIZE = 1000;
 const WRITE_BATCH_SIZE = 500;
 
-/** 전체 상품 마스터 조회 (페이지네이션으로 안전하게 끝까지 가져옴) */
-export async function fetchAllProductMaster(): Promise<ProductMasterRow[]> {
+const SELECT_PRODUCT_MASTER_WITH_CATEGORY =
+  "id, category, product_group_code, product_group_name, product_name, product_code, color_code, size_label, image_url, consumer_price, membership_price, detail_url";
+
+const SELECT_PRODUCT_MASTER_WITHOUT_CATEGORY =
+  "id, product_group_code, product_group_name, product_name, product_code, color_code, size_label, image_url, consumer_price, membership_price, detail_url";
+
+function postgrestErrorText(err: { message?: string; details?: string; hint?: string }): string {
+  return [err.message, err.details, err.hint].filter(Boolean).join(" ");
+}
+
+/** PostgREST: product_master 에 category 컬럼이 없을 때 흔한 메시지 */
+function looksLikeMissingCategoryColumnError(err: { message?: string; details?: string; hint?: string }): boolean {
+  const t = postgrestErrorText(err).toLowerCase();
+  if (!t.includes("category")) return false;
+  return (
+    t.includes("schema cache") ||
+    t.includes("could not find") ||
+    t.includes("column") ||
+    t.includes("unknown column") ||
+    t.includes("pgrst") ||
+    t.includes("product_master")
+  );
+}
+
+function stripCategoryFromDbRows(
+  rows: ProductMasterDbRow[],
+): Omit<ProductMasterDbRow, "category">[] {
+  return rows.map(({ category: _omit, ...rest }) => rest);
+}
+
+async function fetchProductMasterPaged(
+  includeCategory: boolean,
+): Promise<{ rows: ProductMasterRow[]; requestFailed: boolean }> {
   const client = getSupabaseClient();
-  if (!client) return [];
   const collected: ProductMasterRow[] = [];
+  if (!client) {
+    return { rows: [], requestFailed: false };
+  }
   let from = 0;
   while (true) {
     const to = from + FETCH_PAGE_SIZE - 1;
-    const { data, error } = await client
-      .from("product_master")
-      .select(
-        "id, category, product_group_code, product_group_name, product_name, product_code, color_code, size_label, image_url, consumer_price, membership_price, detail_url",
-      )
+    const base = includeCategory
+      ? client.from("product_master").select(SELECT_PRODUCT_MASTER_WITH_CATEGORY)
+      : client.from("product_master").select(SELECT_PRODUCT_MASTER_WITHOUT_CATEGORY);
+    const { data, error } = await base
       .order("product_group_name", { ascending: true })
       .order("product_code", { ascending: true })
       .order("color_code", { ascending: true })
       .order("size_label", { ascending: true })
       .range(from, to);
-    if (error || !data) break;
+    if (error) {
+      return { rows: collected, requestFailed: true };
+    }
+    if (!data) {
+      return { rows: collected, requestFailed: true };
+    }
     for (const row of data as ProductMasterDbRow[]) {
       collected.push(fromDbRow(row));
     }
     if (data.length < FETCH_PAGE_SIZE) break;
     from += FETCH_PAGE_SIZE;
   }
-  return collected;
+  return { rows: collected, requestFailed: false };
+}
+
+/** 전체 상품 마스터 조회 (페이지네이션으로 안전하게 끝까지 가져옴) */
+export async function fetchAllProductMaster(): Promise<ProductMasterRow[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+  const primary = await fetchProductMasterPaged(true);
+  if (primary.requestFailed) {
+    const legacy = await fetchProductMasterPaged(false);
+    return legacy.requestFailed ? [] : legacy.rows;
+  }
+  return primary.rows;
 }
 
 /**
@@ -106,14 +155,23 @@ export async function replaceAllProductMaster(
   const dbRows = nextRows.map(toDbRow);
   const nextIdSet = new Set(dbRows.map((r) => r.id));
 
-  // 1) upsert (id 기준)
+  // 1) upsert (id 기준) — 운영 DB에 category 컬럼이 없으면 첫 실패 후부터는 category 제외
+  let upsertWithCategory = true;
   for (let i = 0; i < dbRows.length; i += WRITE_BATCH_SIZE) {
     const batch = dbRows.slice(i, i + WRITE_BATCH_SIZE);
-    const { error } = await client.from("product_master").upsert(batch, { onConflict: "id" });
+    const payload = upsertWithCategory ? batch : stripCategoryFromDbRows(batch);
+    let { error } = await client.from("product_master").upsert(payload, { onConflict: "id" });
+    if (error && upsertWithCategory && looksLikeMissingCategoryColumnError(error)) {
+      upsertWithCategory = false;
+      const second = await client
+        .from("product_master")
+        .upsert(stripCategoryFromDbRows(batch), { onConflict: "id" });
+      error = second.error;
+    }
     if (error) {
       return {
         ok: false,
-        message: `상품 마스터 저장 중 오류가 발생했습니다. (${error.message})`,
+        message: `상품 마스터 저장 중 오류가 발생했습니다. (${postgrestErrorText(error) || error.message})`,
       };
     }
   }

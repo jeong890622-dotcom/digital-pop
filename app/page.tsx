@@ -13,8 +13,8 @@ import { ALL_ZONE_VALUE, ZoneFilterSelect } from "./_components/customer/ZoneFil
 import { buildStoreCatalogFromProductMasterRows } from "./_data/mockProducts";
 import { formatPrice } from "./_lib/formatPrice";
 import { useProductGroupOptionRules } from "./_lib/productGroupOptionStore";
-import { useProductMasterRows } from "./_lib/productMasterStore";
-import { useStoreOperationRows } from "./_lib/storeOperationStore";
+import { useProductMasterHydrated, useProductMasterRows } from "./_lib/productMasterStore";
+import { useStoreOperationHydrated, useStoreOperationRows } from "./_lib/storeOperationStore";
 import { fetchStores, type StoreRow } from "./_lib/supabaseAdmin";
 import { filterProductsByZone, searchProductsInStore } from "./_lib/productFilters";
 import {
@@ -43,8 +43,11 @@ function HomeContent() {
   const zoneIdParam = searchParams.get("zoneId");
   const areaIdParam = searchParams.get("areaId");
   const [productMasterRows] = useProductMasterRows();
+  const masterHydrated = useProductMasterHydrated();
   const [groupOptionRules] = useProductGroupOptionRules();
   const [operationRowsByStore] = useStoreOperationRows();
+  const opsHydrated = useStoreOperationHydrated();
+  const isCatalogLoading = !masterHydrated || !opsHydrated;
   const [stores, setStores] = useState<StoreRow[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +156,6 @@ function HomeContent() {
   const [isQuoteHydrated, setIsQuoteHydrated] = useState(false);
   const [isQuotePanelOpen, setIsQuotePanelOpen] = useState(false);
   const [quoteExpiryNotice, setQuoteExpiryNotice] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   const selectedZoneId = manualSelectedZoneId ?? resolvedZoneId;
@@ -165,13 +167,27 @@ function HomeContent() {
   const selectedZone = catalog.zones.find((zone) => zone.id === selectedZoneId);
   const hasInvalidZone = selectedZoneId !== ALL_ZONE_VALUE && !selectedZone;
 
-  useEffect(() => {
-    const timerId = window.setTimeout(() => {
-      setIsLoading(false);
-    }, 300);
-
-    return () => window.clearTimeout(timerId);
-  }, []);
+  const productGridErrorMessage = useMemo(() => {
+    if (hasInvalidZone) {
+      return "구역 정보를 찾을 수 없습니다.";
+    }
+    if (isCatalogLoading) {
+      return null;
+    }
+    if (productMasterRows.length === 0) {
+      return "상품 마스터를 불러오지 못했습니다. 잠시 후 다시 시도하거나 직원에게 문의해 주세요.";
+    }
+    if (merchandisingRowsForStore.length > 0 && catalog.products.length === 0) {
+      return "진열에 등록된 제품코드·색상이 상품 마스터와 일치하지 않습니다. 운영 화면에서 코드를 확인해 주세요.";
+    }
+    return null;
+  }, [
+    catalog.products.length,
+    hasInvalidZone,
+    isCatalogLoading,
+    merchandisingRowsForStore.length,
+    productMasterRows.length,
+  ]);
 
   useEffect(() => {
     const timerId = window.setTimeout(() => {
@@ -358,8 +374,8 @@ function HomeContent() {
       />
       <ProductGrid
         products={visibleProducts}
-        isLoading={isLoading}
-        errorMessage={hasInvalidZone ? "구역 정보를 찾을 수 없습니다." : null}
+        isLoading={isCatalogLoading}
+        errorMessage={productGridErrorMessage}
         onSelectProduct={(productId) => setSelectedProductId(productId)}
       />
       <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-center">

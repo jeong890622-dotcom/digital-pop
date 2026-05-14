@@ -16,7 +16,8 @@ export type StoreZoneMerchandisingDbRow = {
   zone: string;
   product_code: string;
   color_code: string;
-  sort_order: number | null;
+  /** DB에 `sort_order` 컬럼이 없을 때(구 스키마) 조회 결과에 없을 수 있음 */
+  sort_order?: number | null;
 };
 
 function buildMerchandisingId(row: {
@@ -52,28 +53,54 @@ function merchandisingToDb(row: StoreOperationRow): StoreZoneMerchandisingDbRow 
   };
 }
 
-export async function fetchAllStoreMerchandising(): Promise<StoreOperationRowsByStore> {
+async function fetchMerchandisingRowsPaged(
+  includeSortOrder: boolean,
+): Promise<{ rows: StoreZoneMerchandisingDbRow[]; requestFailed: boolean }> {
   const client = getSupabaseClient();
-  const empty: StoreOperationRowsByStore = {};
-  if (!client) return empty;
   const collected: StoreZoneMerchandisingDbRow[] = [];
+  if (!client) {
+    return { rows: [], requestFailed: false };
+  }
   let from = 0;
   while (true) {
     const to = from + FETCH_PAGE_SIZE - 1;
-    const { data, error } = await client
-      .from("store_zone_merchandising")
-      .select("id, store_id, zone, product_code, color_code, sort_order")
+    const base = includeSortOrder
+      ? client
+          .from("store_zone_merchandising")
+          .select("id, store_id, zone, product_code, color_code, sort_order")
+      : client
+          .from("store_zone_merchandising")
+          .select("id, store_id, zone, product_code, color_code");
+    const { data, error } = await base
       .order("store_id", { ascending: true })
       .order("zone", { ascending: true })
       .order("product_code", { ascending: true })
       .order("color_code", { ascending: true })
       .range(from, to);
-    if (error || !data) break;
+    if (error) {
+      return { rows: collected, requestFailed: true };
+    }
+    if (!data) {
+      return { rows: collected, requestFailed: true };
+    }
     for (const row of data as StoreZoneMerchandisingDbRow[]) {
       collected.push(row);
     }
     if (data.length < FETCH_PAGE_SIZE) break;
     from += FETCH_PAGE_SIZE;
+  }
+  return { rows: collected, requestFailed: false };
+}
+
+export async function fetchAllStoreMerchandising(): Promise<StoreOperationRowsByStore> {
+  const client = getSupabaseClient();
+  const empty: StoreOperationRowsByStore = {};
+  if (!client) return empty;
+  const primary = await fetchMerchandisingRowsPaged(true);
+  let collected: StoreZoneMerchandisingDbRow[] = primary.rows;
+  if (primary.requestFailed) {
+    const legacy = await fetchMerchandisingRowsPaged(false);
+    collected = legacy.requestFailed ? [] : legacy.rows;
   }
   const byStore: StoreOperationRowsByStore = {};
   for (const row of collected) {
