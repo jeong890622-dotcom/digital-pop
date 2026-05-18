@@ -94,51 +94,159 @@ export function buildDetailSizeOptionsFromGroupRules(
  * 진열·카드의 제품코드와 옵션관리 연동 제품코드가 같을 때 상세 초기 상품군 옵션 규칙.
  * 매칭 없으면 null(색상·사이즈만 초기 선택).
  */
+function activeRulesForLinkedProductCode(
+  rules: ProductGroupOptionRule[],
+  groupName: string,
+  merchandisedProductCode: string,
+): ProductGroupOptionRule[] {
+  const g = groupName.trim();
+  const codeKey = merchandisedProductCode.trim().toLowerCase();
+  if (!g || !codeKey) {
+    return [];
+  }
+  return rules
+    .filter(
+      (rule) =>
+        rule.isActive &&
+        rule.groupName.trim() === g &&
+        rule.linkedProductCode.trim().toLowerCase() === codeKey,
+    )
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder || a.optionName.localeCompare(b.optionName, "ko"),
+    );
+}
+
+/** 동일 연동 코드에 규칙이 여러 개면 마스터 SKU 사이즈와 맞는 규칙을 우선 */
+function pickPrimaryRuleForMerchandisedSku(
+  rules: ProductGroupOptionRule[],
+  groupName: string,
+  product: Product,
+  masterRows: ProductMasterRow[],
+): ProductGroupOptionRule | null {
+  const candidates = activeRulesForLinkedProductCode(rules, groupName, product.code);
+  if (candidates.length === 0) {
+    return null;
+  }
+  if (candidates.length === 1) {
+    return candidates[0]!;
+  }
+
+  const codeKey = product.code.trim().toLowerCase();
+  const colorKey = (product.initialColorCode ?? "").trim().toLowerCase();
+  let masterForSku: ProductMasterRow | undefined;
+  for (const row of masterRows) {
+    if (row.productCode.trim().toLowerCase() !== codeKey) continue;
+    if (colorKey && row.colorCode.trim().toLowerCase() !== colorKey) continue;
+    masterForSku = row;
+    break;
+  }
+  if (!masterForSku) {
+    masterForSku = masterRows.find((row) => row.productCode.trim().toLowerCase() === codeKey);
+  }
+  if (masterForSku) {
+    const byMasterSize = candidates.find((rule) =>
+      detailSizeSelectMatchesRule(rule.sizeLabel, masterForSku!.sizeLabel),
+    );
+    if (byMasterSize) {
+      return byMasterSize;
+    }
+  }
+  return candidates[0]!;
+}
+
+function findSizeOptionIdForRule(product: Product, rule: ProductGroupOptionRule): string | null {
+  if (!product.hasSize) {
+    return "standard";
+  }
+  const matched = product.sizes.find((size) =>
+    detailSizeSelectMatchesRule(rule.sizeLabel, size.label),
+  );
+  if (matched) {
+    return matched.id;
+  }
+  const byCode = product.sizes.find(
+    (size) => size.productCode?.toLowerCase() === product.code.toLowerCase(),
+  );
+  return byCode?.id ?? product.sizes[0]?.id ?? null;
+}
+
 export function pickInitialGroupOptionRule(
   rules: ProductGroupOptionRule[],
   groupName: string,
   merchandisedProductCode: string,
   options: { currentSizeLabel: string; isSingleSizeProduct: boolean },
 ): ProductGroupOptionRule | null {
-  const g = groupName.trim();
-  const codeKey = merchandisedProductCode.trim().toLowerCase();
-  if (!g || !codeKey) {
+  const candidates = activeRulesForLinkedProductCode(rules, groupName, merchandisedProductCode);
+  if (candidates.length === 0) {
     return null;
   }
-
-  const candidates = rules
-    .filter(
-      (rule) =>
-        rule.isActive &&
-        rule.groupName.trim() === g &&
-        rule.linkedProductCode.trim().toLowerCase() === codeKey &&
-        (options.isSingleSizeProduct ||
-          detailSizeSelectMatchesRule(rule.sizeLabel, options.currentSizeLabel)),
-    )
-    .sort(
-      (a, b) =>
-        a.sortOrder - b.sortOrder || a.optionName.localeCompare(b.optionName, "ko"),
-    );
-
-  return candidates[0] ?? null;
+  if (options.isSingleSizeProduct) {
+    return candidates[0] ?? null;
+  }
+  const matched = candidates.find((rule) =>
+    detailSizeSelectMatchesRule(rule.sizeLabel, options.currentSizeLabel),
+  );
+  return matched ?? candidates[0] ?? null;
 }
 
-export function getInitialDetailSelection(product: Product): ProductDetailSelection {
-  const defaultSizeId = (() => {
-    if (!product.hasSize) {
-      return "standard";
-    }
+export type InitialDetailSheetState = {
+  colorId: string | null;
+  sizeId: string | null;
+  groupOptionRuleId: string | null;
+};
 
+/**
+ * 진열 SKU(제품코드·색상) + 상품군별 옵션 규칙으로 상세 초기 선택.
+ * 연동 제품코드 규칙이 있으면 규칙 sizeLabel·옵션을 우선(사이즈 칸 productCode 불일치 보완).
+ */
+export function getInitialDetailSheetState(
+  product: Product,
+  rules: ProductGroupOptionRule[],
+  masterRows: ProductMasterRow[] = [],
+): InitialDetailSheetState {
+  const colorId = product.initialColorCode || (product.colors[0]?.id ?? null);
+  const primaryRule = pickPrimaryRuleForMerchandisedSku(
+    rules,
+    product.groupName,
+    product,
+    masterRows,
+  );
+
+  let sizeId: string | null;
+  if (!product.hasSize) {
+    sizeId = "standard";
+  } else if (primaryRule) {
+    sizeId = findSizeOptionIdForRule(product, primaryRule);
+  } else {
     const matchedByProductCode = product.sizes.find(
       (size) => size.productCode?.toLowerCase() === product.code.toLowerCase(),
     );
+    sizeId = matchedByProductCode?.id ?? product.sizes[0]?.id ?? null;
+  }
 
-    return matchedByProductCode?.id ?? (product.sizes[0]?.id ?? null);
-  })();
+  let groupOptionRuleId: string | null = null;
+  if (primaryRule) {
+    const isSingle = !product.hasSize || product.sizes.length <= 1;
+    const sizeLabel =
+      product.hasSize && sizeId
+        ? (product.sizes.find((s) => s.id === sizeId)?.label ?? "Standard")
+        : "Standard";
+    groupOptionRuleId =
+      pickInitialGroupOptionRule(rules, product.groupName, product.code, {
+        currentSizeLabel: sizeLabel,
+        isSingleSizeProduct: isSingle,
+      })?.id ?? primaryRule.id;
+  }
 
+  return { colorId, sizeId, groupOptionRuleId };
+}
+
+export function getInitialDetailSelection(product: Product): ProductDetailSelection {
+  const { colorId, sizeId } = getInitialDetailSheetState(product, [], []);
   return {
-    colorId: product.initialColorCode || (product.colors[0]?.id ?? null),
-    sizeId: defaultSizeId,
+    colorId,
+    sizeId,
     quantity: 1,
   };
 }

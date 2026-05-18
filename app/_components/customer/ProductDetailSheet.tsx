@@ -6,8 +6,7 @@ import {
   buildDetailSizeOptionsFromGroupRules,
   detailSizeSelectMatchesRule,
   getAllowedColorKeysForProductCode,
-  getInitialDetailSelection,
-  pickInitialGroupOptionRule,
+  getInitialDetailSheetState,
   getSelectedProductCode,
   isDisplayedInStore,
   getLineTotal,
@@ -91,27 +90,16 @@ export function ProductDetailSheet({
 
   useLayoutEffect(() => {
     if (!product || !isOpen || !sheetProduct) return;
-    const sel = getInitialDetailSelection(sheetProduct);
-    setColorId(sel.colorId);
-    setSizeId(sel.sizeId);
-    setQuantity(1);
-
-    const isSingle =
-      !sheetProduct.hasSize || sheetProduct.sizes.length <= 1;
-    const sizeLabelForMatch = (() => {
-      if (!sheetProduct.hasSize) return "Standard";
-      const size = sheetProduct.sizes.find((s) => s.id === sel.sizeId);
-      return size?.label ?? "Standard";
-    })();
-
-    const matchedRule = pickInitialGroupOptionRule(
+    const initial = getInitialDetailSheetState(
+      sheetProduct,
       groupOptionRules,
-      sheetProduct.groupName,
-      product.code,
-      { currentSizeLabel: sizeLabelForMatch, isSingleSizeProduct: isSingle },
+      productMasterRows,
     );
-    setSelectedGroupOptionId(matchedRule?.id ?? null);
-  }, [groupOptionRules, isOpen, product?.code, product?.id, sheetProduct]);
+    setColorId(initial.colorId);
+    setSizeId(initial.sizeId);
+    setQuantity(1);
+    setSelectedGroupOptionId(initial.groupOptionRuleId);
+  }, [groupOptionRules, isOpen, product?.id, productMasterRows, sheetProduct]);
 
   const currentSizeLabel = useMemo(() => {
     if (!sheetProduct) return "Standard";
