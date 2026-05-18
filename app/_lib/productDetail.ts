@@ -90,6 +90,39 @@ export function buildDetailSizeOptionsFromGroupRules(
   return sortSizeOptionsByPrimaryNumber(options);
 }
 
+/**
+ * 진열·카드의 제품코드와 옵션관리 연동 제품코드가 같을 때 상세 초기 상품군 옵션 규칙.
+ * 매칭 없으면 null(색상·사이즈만 초기 선택).
+ */
+export function pickInitialGroupOptionRule(
+  rules: ProductGroupOptionRule[],
+  groupName: string,
+  merchandisedProductCode: string,
+  options: { currentSizeLabel: string; isSingleSizeProduct: boolean },
+): ProductGroupOptionRule | null {
+  const g = groupName.trim();
+  const codeKey = merchandisedProductCode.trim().toLowerCase();
+  if (!g || !codeKey) {
+    return null;
+  }
+
+  const candidates = rules
+    .filter(
+      (rule) =>
+        rule.isActive &&
+        rule.groupName.trim() === g &&
+        rule.linkedProductCode.trim().toLowerCase() === codeKey &&
+        (options.isSingleSizeProduct ||
+          detailSizeSelectMatchesRule(rule.sizeLabel, options.currentSizeLabel)),
+    )
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder || a.optionName.localeCompare(b.optionName, "ko"),
+    );
+
+  return candidates[0] ?? null;
+}
+
 export function getInitialDetailSelection(product: Product): ProductDetailSelection {
   const defaultSizeId = (() => {
     if (!product.hasSize) {

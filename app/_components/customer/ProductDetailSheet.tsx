@@ -7,6 +7,7 @@ import {
   detailSizeSelectMatchesRule,
   getAllowedColorKeysForProductCode,
   getInitialDetailSelection,
+  pickInitialGroupOptionRule,
   getSelectedProductCode,
   isDisplayedInStore,
   getLineTotal,
@@ -90,12 +91,27 @@ export function ProductDetailSheet({
 
   useLayoutEffect(() => {
     if (!product || !isOpen || !sheetProduct) return;
-    setSelectedGroupOptionId(null);
     const sel = getInitialDetailSelection(sheetProduct);
     setColorId(sel.colorId);
     setSizeId(sel.sizeId);
     setQuantity(1);
-  }, [isOpen, product?.id, sheetProduct]);
+
+    const isSingle =
+      !sheetProduct.hasSize || sheetProduct.sizes.length <= 1;
+    const sizeLabelForMatch = (() => {
+      if (!sheetProduct.hasSize) return "Standard";
+      const size = sheetProduct.sizes.find((s) => s.id === sel.sizeId);
+      return size?.label ?? "Standard";
+    })();
+
+    const matchedRule = pickInitialGroupOptionRule(
+      groupOptionRules,
+      sheetProduct.groupName,
+      product.code,
+      { currentSizeLabel: sizeLabelForMatch, isSingleSizeProduct: isSingle },
+    );
+    setSelectedGroupOptionId(matchedRule?.id ?? null);
+  }, [groupOptionRules, isOpen, product?.code, product?.id, sheetProduct]);
 
   const currentSizeLabel = useMemo(() => {
     if (!sheetProduct) return "Standard";
