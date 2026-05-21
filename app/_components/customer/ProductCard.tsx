@@ -1,8 +1,11 @@
 import Image from "next/image";
 import type { Product } from "../../_data/mockProducts";
+import { customerBodyMedium, customerBodyText, customerCardTitleHover } from "../../_lib/deskerTokens";
 import { formatPrice } from "../../_lib/formatPrice";
+import { stripSizeMillimeterSuffix } from "../../_lib/formatSizeLabel";
 import { resolveProductBadges } from "../../_lib/productBadges";
 import { useProductEventRules } from "../../_lib/productEventStore";
+import { ProductBadgeStrip } from "./ProductBadgeStrip";
 
 type ProductCardProps = {
   product: Product;
@@ -12,61 +15,42 @@ type ProductCardProps = {
 export function ProductCard({ product, onSelect }: ProductCardProps) {
   const [rules] = useProductEventRules();
   const badges = resolveProductBadges(product.code, rules);
-  const safeImageSrc =
-    !product.imageUrl.trim()
-      ? "/window.svg"
-      : product.imageUrl;
-  const normalizedSize = product.size.replace(/\s+/g, "");
+  const safeImageSrc = !product.imageUrl.trim() ? "/window.svg" : product.imageUrl;
+  const sizeDisplay = stripSizeMillimeterSuffix(product.size);
+  const normalizedSize = sizeDisplay.replace(/\s+/g, "");
   const showSizeLine =
-    normalizedSize.length > 0 &&
-    !/^0(?:[xX*]0)*$/.test(normalizedSize);
+    normalizedSize.length > 0 && !/^0(?:[xX*]0)*$/.test(normalizedSize);
 
   return (
     <button
       type="button"
       onClick={onSelect}
-      className="w-full text-left"
+      className="group flex h-full w-full flex-col text-left"
       aria-label={`${product.name} 상세 보기`}
     >
-      <article className="group">
-        <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-white">
+      <article className="flex h-full flex-col">
+        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-[#F0F0F0]">
           <Image
             src={safeImageSrc}
             alt={product.name}
-            width={140}
-            height={140}
-            className="h-full w-full object-contain contrast-115 saturate-110"
-            sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw"
+            fill
+            className="object-contain object-top p-3 md:p-4"
+            sizes="(max-width: 767px) 45vw, 30vw"
           />
         </div>
-        <div className="pt-3 text-center">
-          <h3 className="line-clamp-2 text-sm font-medium text-[#111111] group-hover:opacity-80">
+        <div className="flex flex-1 flex-col pt-2">
+          <h3
+            className={`line-clamp-2 ${customerBodyMedium} ${customerCardTitleHover}`}
+          >
             {product.name}
           </h3>
           {showSizeLine ? (
-            <p className="mt-1 text-xs text-[#666666]">{product.size}</p>
+            <p className={`mt-1 line-clamp-1 ${customerBodyText}`}>{sizeDisplay}</p>
           ) : null}
-          <p className={`${showSizeLine ? "mt-2" : "mt-1"} text-sm font-semibold text-[#111111]`}>
+          <p className={`mt-1 ${customerBodyMedium}`}>
             {formatPrice(product.membershipPrice)}
           </p>
-          {badges.length > 0 ? (
-            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
-              {badges.map((badge) => (
-                <span
-                  key={`${product.id}-${badge.type}`}
-                  className={`rounded-sm border px-1.5 py-0.5 text-[10px] leading-none ${
-                    badge.type === "wall-required"
-                      ? "border-[#E5E5E5] bg-[#F5F5F5] text-[#111111]"
-                      : badge.type === "new"
-                        ? "border-[#D9D9D9] bg-white text-[#111111]"
-                        : "border-[#D9D9D9] bg-white text-[#666666]"
-                  }`}
-                >
-                  {badge.label}
-                </span>
-              ))}
-            </div>
-          ) : null}
+          <ProductBadgeStrip badges={badges} variant="card" className="mt-2 min-h-[1.375rem]" />
         </div>
       </article>
     </button>

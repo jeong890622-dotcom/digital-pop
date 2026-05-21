@@ -1,12 +1,25 @@
+import { customerHeaderStoreLabel } from "../../_lib/formatStoreDisplayName";
+import { customerContentPadding, customerMainNavLabel } from "../../_lib/deskerTokens";
+
 type StoreHeaderProps = {
   storeName: string;
 };
 
+/** QR 오류 등 단순 헤더 */
 export function StoreHeader({ storeName }: StoreHeaderProps) {
+  const storeLabel = customerHeaderStoreLabel(storeName);
+
   return (
-    <header className="border-b border-[#E5E5E5] bg-white px-4 py-4 sm:px-6 lg:px-10">
-      <p className="text-xs text-[#888888]">디지털 가격 POP</p>
-      <h1 className="mt-1 text-lg font-semibold text-[#111111]">{storeName}</h1>
+    <header className="sticky top-0 z-50 bg-white">
+      <div
+        className={`${customerContentPadding} flex h-10 items-center justify-between gap-4 sm:grid sm:grid-cols-[1fr_auto_1fr]`}
+      >
+        <p className={customerMainNavLabel}>DIGITAL POP</p>
+        <div className="hidden justify-center sm:flex">
+          {storeLabel ? <p className={customerMainNavLabel}>{storeLabel}</p> : null}
+        </div>
+        <span className="hidden sm:block" aria-hidden />
+      </div>
     </header>
   );
 }

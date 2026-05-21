@@ -11,6 +11,8 @@ const DEFAULT_RULES: ProductEventRules = {
   wallRequiredProductCodes: [],
   newProductCodes: [],
   bestProductCodes: [],
+  promotionProductCodes: [],
+  displaySaleProductCodes: [],
 };
 
 let state: ProductEventRules = DEFAULT_RULES;
@@ -29,6 +31,8 @@ function normalizeRules(raw: Partial<ProductEventRules>): ProductEventRules {
     wallRequiredProductCodes: normalizeCodeList(raw.wallRequiredProductCodes),
     newProductCodes: normalizeCodeList(raw.newProductCodes),
     bestProductCodes: normalizeCodeList(raw.bestProductCodes),
+    promotionProductCodes: normalizeCodeList(raw.promotionProductCodes),
+    displaySaleProductCodes: normalizeCodeList(raw.displaySaleProductCodes),
   };
 }
 

@@ -1,41 +1,49 @@
 import type { ReactNode } from "react";
+import {
+  customerBodyText,
+  customerContentPadding,
+  customerLightText,
+  customerPanelDivider,
+  customerPlaceholder,
+  customerResultsLabel,
+  customerTextHover,
+} from "../../_lib/deskerTokens";
 
 type ProductSearchBarProps = {
   value: string;
   onChange: (nextValue: string) => void;
-  selectedZoneLabel: string;
+  resultCount: number;
   zoneFilterSlot: ReactNode;
 };
 
 export function ProductSearchBar({
   value,
   onChange,
-  selectedZoneLabel,
+  resultCount,
   zoneFilterSlot,
 }: ProductSearchBarProps) {
   return (
-    <div className="px-4 pt-3 sm:px-6 lg:px-10">
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs text-[#888888]">현재 구역: {selectedZoneLabel}</p>
-        {zoneFilterSlot}
-      </div>
-      <div className="flex items-center gap-2 rounded-md border border-[#E5E5E5] bg-[#F5F5F5] px-3 py-2">
+    <div className={customerContentPadding}>
+      <div className="flex h-10 items-center border-b border-[#282828]">
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder="제품명 또는 제품코드 검색"
-          className="w-full bg-transparent text-sm text-[#111111] outline-none placeholder:text-[#888888]"
+          className={`min-w-0 flex-1 bg-transparent outline-none ${customerPlaceholder} ${customerBodyText}`}
         />
         {value ? (
           <button
             type="button"
             onClick={() => onChange("")}
-            className="min-w-8 shrink-0 whitespace-nowrap px-1 text-xs font-medium text-[#666666]"
+            className={`ml-4 shrink-0 ${customerLightText} ${customerTextHover}`}
           >
             지우기
           </button>
         ) : null}
+        <div className="ml-4 shrink-0">{zoneFilterSlot}</div>
       </div>
+      <div className={customerPanelDivider} />
+      <p className={`py-3 ${customerResultsLabel}`}>{resultCount} RESULTS</p>
     </div>
   );
 }

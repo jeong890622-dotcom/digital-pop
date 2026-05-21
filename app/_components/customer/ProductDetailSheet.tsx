@@ -19,9 +19,35 @@ import {
 import type { AddToQuotePayload } from "../../_types/quote";
 import { OptionSelector } from "./OptionSelector";
 import { QuantityStepper } from "./QuantityStepper";
+import { resolveProductBadges } from "../../_lib/productBadges";
 import { useProductGroupOptionRules } from "../../_lib/productGroupOptionStore";
+import { useProductEventRules } from "../../_lib/productEventStore";
 import { useProductMasterRows } from "../../_lib/productMasterStore";
 import { stripSizeMillimeterSuffix } from "../../_lib/formatSizeLabel";
+import {
+  customerBodyMedium,
+  customerBodyText,
+  customerCatalogRoot,
+  customerContentPadding,
+  customerDarkGrayText,
+  customerDetailTitle,
+  customerLightText,
+  customerPanelDivider,
+  customerPanelActionCaps,
+  customerPanelActionCapsOnDark,
+  customerPanelOptionSectionGap,
+  customerPanelSectionLabel,
+  customerPrimaryButton,
+  customerProductDetailLink,
+  customerTextHover,
+} from "../../_lib/deskerTokens";
+import {
+  customerDetailBackdropClass,
+  customerDetailSheetClass,
+  customerDetailSheetOuterClass,
+  customerDetailSheetPositionClass,
+} from "../../_lib/customerLayout";
+import { ProductBadgeStrip } from "./ProductBadgeStrip";
 
 type ProductDetailSheetProps = {
   product: Product | null;
@@ -43,6 +69,7 @@ export function ProductDetailSheet({
   const [quantity, setQuantity] = useState(1);
   const [selectedGroupOptionId, setSelectedGroupOptionId] = useState<string | null>(null);
   const [groupOptionRules] = useProductGroupOptionRules();
+  const [eventRules] = useProductEventRules();
   const [productMasterRows] = useProductMasterRows();
 
   const masterGroupRows = useMemo(() => {
@@ -57,7 +84,6 @@ export function ProductDetailSheet({
     [masterGroupRows],
   );
 
-  /** 상품군별 옵션 관리에 활성 규칙이 있으면 상세 사이즈는 규칙의 sizeLabel만 사용 */
   const detailSizesFromRules = useMemo(
     () =>
       product?.groupName
@@ -70,7 +96,6 @@ export function ProductDetailSheet({
     [groupOptionRules, product?.groupName, productMasterRows],
   );
 
-  /** 목록 카드와 달리 상세는 상품군 마스터 전체 색상; 사이즈는 규칙 우선 */
   const sheetProduct = useMemo((): Product | null => {
     if (!product) return null;
     if (!variantBundle) return product;
@@ -149,7 +174,6 @@ export function ProductDetailSheet({
     return availableGroupOptions.find((rule) => rule.id === selectedGroupOptionId) ?? null;
   }, [availableGroupOptions, selectedGroupOptionId]);
 
-  /** 상품군 옵션 선택 시 연동 제품코드에 마스터에 실제 있는 색상코드만 허용 (없으면 null = 전체 허용) */
   const allowedColorKeysForLinkedSku = useMemo(() => {
     if (!activeGroupOptionRule) return null;
     return getAllowedColorKeysForProductCode(
@@ -237,6 +261,19 @@ export function ProductDetailSheet({
     }
     return getSelectedProductCode(sheetProduct, sizeId);
   }, [sheetProduct, sizeId]);
+  const productBadges = useMemo(() => {
+    if (!product) {
+      return [];
+    }
+    const badgeProductCode =
+      linkedProductMasterRow?.productCode?.trim() || selectedProductCode || product.code;
+    return resolveProductBadges(badgeProductCode, eventRules);
+  }, [
+    eventRules,
+    linkedProductMasterRow?.productCode,
+    product,
+    selectedProductCode,
+  ]);
   const displayedInStore = useMemo(() => {
     const targetProductCode = linkedProductMasterRow?.productCode ?? selectedProductCode;
     const targetColorCode = linkedProductMasterRow?.colorCode ?? colorId;
@@ -303,8 +340,10 @@ export function ProductDetailSheet({
     "https://www.desker.co.kr/product/detail/612";
   const hasDetailUrl = detailUrl.length > 0;
 
+  const standardSizeOptions = [{ id: "standard", label: "Standard" }];
+
   return (
-    <div className="fixed inset-0 z-30 bg-black/25">
+    <div className="fixed inset-0 z-[60]">
       <div
         role="button"
         tabIndex={0}
@@ -315,120 +354,158 @@ export function ProductDetailSheet({
             onClose();
           }
         }}
-        className="h-full w-full"
+        className={customerDetailBackdropClass}
       />
-      <section className="absolute inset-x-0 top-1/2 z-40 mx-auto max-h-[85vh] w-full max-w-3xl -translate-y-1/2 overflow-y-auto rounded-xl bg-white px-4 pb-6 pt-4">
-        <div className="mb-4 flex items-start justify-between">
-          <p className="text-sm font-semibold text-[#111111]">상품 상세</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-sm text-[#666666]"
-          >
-            닫기
-          </button>
-        </div>
-
-        <div className="grid grid-cols-[172px_1fr] gap-6 border-b border-[#E5E5E5] pb-4">
-          <div className="flex h-[172px] w-[172px] items-center justify-center bg-[#F5F5F5]">
-            <Image
-              src={safeSelectedImageUrl}
-              alt={product.name}
-              width={142}
-              height={142}
-              className="scale-[1.8] object-contain contrast-115 saturate-110"
-            />
-          </div>
-          <div className="pl-1">
-            <h2 className="mt-1 text-base font-semibold text-[#111111]">
-              {product.groupName}
-            </h2>
-            <p className="mt-1.5 text-sm text-[#B0B0B0]">
-              소비자가 {formatPrice(selectedConsumerPrice)}
-            </p>
-            <p className="mt-2 text-sm font-semibold text-[#111111]">
-              멤버십가 {formatPrice(selectedPrice)}
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-4 py-4">
-          {sheetProduct.colors.length > 0 ? (
-            <OptionSelector
-              label="색상"
-              options={colorOptionsForDisplay}
-              selectedId={colorId}
-              onSelect={setColorId}
-            />
-          ) : null}
-
-          {sheetProduct.hasSize ? (
-            <OptionSelector
-              label="사이즈"
-              options={sizeOptionsForDisplay}
-              selectedId={sizeId}
-              onSelect={setSizeId}
-            />
-          ) : (
-            <section>
-              <p className="mb-2 text-xs text-[#666666]">사이즈</p>
-              <p className="text-sm text-[#111111]">Standard</p>
-            </section>
-          )}
-
-          {availableGroupOptions.length > 0 ? (
-            <OptionSelector
-              label="상품군 옵션"
-              options={availableGroupOptions.map((rule) => ({
-                id: rule.id,
-                label: rule.optionName,
-              }))}
-              selectedId={selectedGroupOptionId}
-              onSelect={(nextId) => {
-                setSelectedGroupOptionId((prev) => (prev === nextId ? null : nextId));
-              }}
-            />
-          ) : null}
-
-          {hasDetailUrl ? (
-            <section>
-              <a
-                href={detailUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex rounded-sm border border-[#E5E5E5] px-3 py-2 text-xs text-[#111111]"
+      <div className={customerDetailSheetPositionClass}>
+        <div className={customerDetailSheetOuterClass}>
+          <section
+            className={`${customerDetailSheetClass} ${customerCatalogRoot}`}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="product-detail-title"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="shrink-0">
+            <div
+              className={`${customerContentPadding} flex h-10 items-center justify-between`}
+            >
+              <p className={customerPanelActionCaps}>PRODUCT DETAILS</p>
+              <button
+                type="button"
+                onClick={onClose}
+                className={`${customerPanelActionCaps} ${customerTextHover}`}
               >
-                제품 상세보기
-              </a>
-            </section>
-          ) : null}
-
-          <section>
-            <p className="mb-2 text-xs text-[#666666]">매장 전시 여부</p>
-            <p className="text-sm text-[#111111]">
-              {displayedInStore ? "전시 중" : "전시 없음"}
-            </p>
-          </section>
-
-          <QuantityStepper value={quantity} onChange={setQuantity} />
-        </div>
-
-        <div className="border-t border-[#E5E5E5] pt-4">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm text-[#666666]">총 금액</p>
-            <p className="text-base font-semibold text-[#111111]">
-              {formatPrice(totalPrice)}
-            </p>
+                CLOSE
+              </button>
+            </div>
+            <div className={customerPanelDivider} />
           </div>
-          <button
-            type="button"
-            onClick={handleAddToQuote}
-            className="w-full rounded-sm bg-[#111111] py-3 text-sm font-medium text-white"
-          >
-            견적서 담기
-          </button>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] lg:min-h-[min(70vh,680px)] lg:items-stretch">
+              <div className="relative flex aspect-[4/3] w-full items-center justify-center bg-[#F0F0F0] lg:aspect-auto lg:h-full lg:min-h-0 lg:self-stretch">
+                <div className="relative mx-auto size-full min-h-[200px] max-h-[min(72vw,420px)] lg:absolute lg:inset-0 lg:max-h-none">
+                  <Image
+                    src={safeSelectedImageUrl}
+                    alt={product.groupName}
+                    fill
+                    className="object-contain object-center"
+                    sizes="(max-width: 1023px) 100vw, 40vw"
+                  />
+                </div>
+              </div>
+
+            <div
+              className={`flex min-h-[280px] min-w-0 flex-col py-5 lg:min-h-[280px] lg:py-8 ${customerContentPadding}`}
+            >
+              <div className="shrink-0">
+                <h2 id="product-detail-title" className={customerDetailTitle}>
+                  {product.groupName}
+                </h2>
+                <p className={`mt-2 ${customerBodyMedium}`}>{formatPrice(selectedPrice)}</p>
+                <p className={`mt-1 line-through ${customerLightText}`}>
+                  소비자가 {formatPrice(selectedConsumerPrice)}
+                </p>
+                <ProductBadgeStrip badges={productBadges} variant="detail" className="mb-4 mt-3" />
+                <p
+                  className={`underline ${
+                    displayedInStore ? customerBodyText : customerDarkGrayText
+                  }`}
+                >
+                  {displayedInStore ? "매장 전시 중" : "매장 미전시"}
+                </p>
+              </div>
+
+              <div className={`mt-5 ${customerPanelOptionSectionGap}`}>
+                {sheetProduct.hasSize ? (
+                  <OptionSelector
+                    label="SIZE"
+                    uppercaseLabel
+                    variant="detail"
+                    options={sizeOptionsForDisplay}
+                    selectedId={sizeId}
+                    onSelect={setSizeId}
+                  />
+                ) : (
+                  <OptionSelector
+                    label="SIZE"
+                    uppercaseLabel
+                    variant="detail"
+                    options={standardSizeOptions}
+                    selectedId="standard"
+                    onSelect={() => {}}
+                  />
+                )}
+
+                {sheetProduct.colors.length > 0 ? (
+                  <OptionSelector
+                    label="COLOUR"
+                    uppercaseLabel
+                    variant="detail"
+                    options={colorOptionsForDisplay}
+                    selectedId={colorId}
+                    onSelect={setColorId}
+                  />
+                ) : null}
+
+                {availableGroupOptions.length > 0 ? (
+                  <OptionSelector
+                    label="OPTION"
+                    uppercaseLabel
+                    variant="detail"
+                    options={availableGroupOptions.map((rule) => ({
+                      id: rule.id,
+                      label: rule.optionName,
+                    }))}
+                    selectedId={selectedGroupOptionId}
+                    allowDeselect
+                    onSelect={(nextId) => {
+                      setSelectedGroupOptionId((prev) => (prev === nextId ? null : nextId));
+                    }}
+                  />
+                ) : null}
+
+                {hasDetailUrl ? (
+                  <a
+                    href={detailUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={customerProductDetailLink}
+                  >
+                    PRODUCT DETAIL ↗
+                  </a>
+                ) : null}
+              </div>
+
+              <div className="mt-auto shrink-0 pt-4">
+                <div className={customerPanelDivider} />
+                <div className="flex items-center justify-between gap-4 pt-4">
+                  <span className={customerPanelSectionLabel}>TOTAL</span>
+                  <span className={customerBodyMedium}>{formatPrice(totalPrice)}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-[minmax(5.5rem,25%)_1fr] items-stretch gap-3">
+                  <QuantityStepper
+                    value={quantity}
+                    onChange={setQuantity}
+                    showLabel={false}
+                    variant="detail"
+                    className="min-w-0"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddToQuote}
+                    className={`${customerPrimaryButton} w-full justify-center ${customerPanelActionCapsOnDark}`}
+                  >
+                    CART
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+          </section>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

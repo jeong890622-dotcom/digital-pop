@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useProductEventRules } from "../../_lib/productEventStore";
 import type { ProductEventRules } from "../../_types/productBadge";
 
-type EventKey = keyof ProductEventRules;
+type EventKey = "bestProductCodes" | "wallRequiredProductCodes" | "newProductCodes";
 
 const EVENT_SECTIONS: Array<{ key: EventKey; title: string; helper: string }> = [
   { key: "bestProductCodes", title: "BEST 상품 등록하기", helper: "BEST 배지 노출 대상 제품코드" },

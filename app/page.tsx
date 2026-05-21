@@ -4,10 +4,12 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ProductGrid } from "./_components/customer/ProductGrid";
 import { ProductDetailSheet } from "./_components/customer/ProductDetailSheet";
-import { ProductSearchBar } from "./_components/customer/ProductSearchBar";
 import { QuoteDetailPanel } from "./_components/customer/QuoteDetailPanel";
+import { Cart24hNotice } from "./_components/customer/Cart24hNotice";
 import { QuoteExpiryNotice } from "./_components/customer/QuoteExpiryNotice";
 import { QuoteStickyBar } from "./_components/customer/QuoteStickyBar";
+import { CustomerCatalogHeader } from "./_components/customer/CustomerCatalogHeader";
+import { ProductSearchBar } from "./_components/customer/ProductSearchBar";
 import { StoreHeader } from "./_components/customer/StoreHeader";
 import { ALL_ZONE_VALUE, ZoneFilterSelect } from "./_components/customer/ZoneFilterSelect";
 import { buildStoreCatalogFromProductMasterRows } from "./_data/mockProducts";
@@ -32,9 +34,21 @@ import {
   writeStoredQuoteItems,
 } from "./_lib/quoteStorage";
 import type { AddToQuotePayload, QuoteItem } from "./_types/quote";
+import {
+  customerOverlayShellClass,
+  customerPageOuterClass,
+  customerShellClass,
+  customerStickyBelowHeaderClass,
+} from "./_lib/customerLayout";
+import {
+  customerBadgeText,
+  customerBodyMedium,
+  customerContentPadding,
+  customerMutedText,
+} from "./_lib/deskerTokens";
 
 const QUOTE_EXPIRY_NOTICE =
-  "견적서 보관 시간이 만료되어 초기화되었습니다.";
+  "견적 보관 시간이 만료되어 장바구니가 초기화되었습니다.";
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -133,10 +147,10 @@ function HomeContent() {
    * - stores fetch 가 끝나기 전이거나 매장을 못 찾으면 빈 문자열로 두어
    *   기존 mock("DESKER 강남점") 이 잘못 표시되는 것을 막는다.
    */
-  const resolvedStoreName = useMemo(() => {
-    const match = stores.find((s) => s.id === resolvedStoreId);
-    return match?.name ?? "";
+  const resolvedStore = useMemo(() => {
+    return stores.find((s) => s.id === resolvedStoreId) ?? null;
   }, [stores, resolvedStoreId]);
+  const resolvedStoreName = resolvedStore?.name ?? "";
   const isAllZoneParam = effectiveZoneParam === ALL_ZONE_VALUE;
   const zoneExists = catalog.zones.some((zone) => zone.id === effectiveZoneParam);
   const isMissingRequestedQrZone =
@@ -156,10 +170,12 @@ function HomeContent() {
   const [isQuoteHydrated, setIsQuoteHydrated] = useState(false);
   const [isQuotePanelOpen, setIsQuotePanelOpen] = useState(false);
   const [quoteExpiryNotice, setQuoteExpiryNotice] = useState<string | null>(null);
+  const [cart24hNoticeVisible, setCart24hNoticeVisible] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   const selectedZoneId = manualSelectedZoneId ?? resolvedZoneId;
-
+  const qrEntryZoneId = catalog.qrZoneId;
+  const hasManualZoneOverride = manualSelectedZoneId !== null;
   const currentStoreProducts = useMemo(() => {
     return catalog.products.filter((product) => product.storeId === resolvedStoreId);
   }, [catalog.products, resolvedStoreId]);
@@ -248,7 +264,7 @@ function HomeContent() {
     }
     const timerId = window.setTimeout(() => {
       setQuoteExpiryNotice(null);
-    }, 6000);
+    }, 5000);
     return () => window.clearTimeout(timerId);
   }, [quoteExpiryNotice]);
 
@@ -296,8 +312,19 @@ function HomeContent() {
     return map;
   }, [productMasterRows]);
 
+  useEffect(() => {
+    if (!cart24hNoticeVisible) {
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      setCart24hNoticeVisible(false);
+    }, 3000);
+    return () => window.clearTimeout(timerId);
+  }, [cart24hNoticeVisible]);
+
   const handleAddToQuote = (payload: AddToQuotePayload) => {
     setQuoteItems((prev) => addOrMergeQuoteItem(prev, payload));
+    setCart24hNoticeVisible(true);
     handleCloseDetail();
   };
 
@@ -331,44 +358,53 @@ function HomeContent() {
       : "해당 구역 전시가 잠시 중단되었을 수 있습니다. 다른 QR을 이용하시거나 직원에게 문의해 주세요.";
 
     return (
-      <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white">
+      <div className={customerPageOuterClass}>
+        <div className={customerShellClass}>
         <StoreHeader storeName={resolvedStoreName} />
-        <section className="px-4 py-16 sm:px-6 lg:px-10">
-          <div className="rounded-sm border border-[#E5E5E5] bg-[#F5F5F5] px-5 py-6">
-            <p className="text-xs text-[#888888]">안내</p>
-            <p className="mt-2 text-base font-semibold text-[#111111]">{title}</p>
-            <p className="mt-3 text-sm leading-relaxed text-[#666666]">{description}</p>
-            <p className="mt-4 text-xs text-[#888888]">
+        <section className={`${customerContentPadding} py-16`}>
+          <div className="border border-[#B3B3B3] bg-white px-5 py-6">
+            <p className={`${customerBadgeText} ${customerMutedText}`}>안내</p>
+            <p className={`mt-2 ${customerBodyMedium}`}>{title}</p>
+            <p className={`mt-3 ${customerMutedText}`}>{description}</p>
+            <p className={`mt-4 ${customerBadgeText} ${customerMutedText}`}>
               계속 문제가 있으면 매장 직원에게 도움을 요청해 주세요.
             </p>
           </div>
         </section>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white">
-      <StoreHeader storeName={resolvedStoreName} />
-      {quoteExpiryNotice ? (
-        <QuoteExpiryNotice
-          message={quoteExpiryNotice}
-          onDismiss={() => setQuoteExpiryNotice(null)}
-        />
-      ) : null}
+    <div className={customerPageOuterClass}>
+    <div className={customerShellClass}>
+      <CustomerCatalogHeader
+        storeName={resolvedStoreName}
+        cartQuantity={stickyQuantity}
+        onOpenCart={handleToggleQuotePanel}
+      />
+      <div className={customerStickyBelowHeaderClass}>
+        {quoteExpiryNotice ? (
+          <QuoteExpiryNotice
+            message={quoteExpiryNotice}
+            onDismiss={() => setQuoteExpiryNotice(null)}
+          />
+        ) : null}
+        <Cart24hNotice visible={cart24hNoticeVisible} />
+      </div>
       <ProductSearchBar
         value={searchQuery}
         onChange={setSearchQuery}
-        selectedZoneLabel={
-          selectedZoneId === ALL_ZONE_VALUE
-            ? "전체"
-            : (selectedZone?.name ?? "구역 정보 없음")
-        }
+        resultCount={visibleProducts.length}
         zoneFilterSlot={
           <ZoneFilterSelect
             zones={catalog.zones}
             selectedZoneId={selectedZoneId}
-            onSelect={setManualSelectedZoneId}
+            onSelect={(zoneId) => setManualSelectedZoneId(zoneId)}
+            qrZoneId={qrEntryZoneId}
+            hasManualZoneOverride={hasManualZoneOverride}
+            onReturnToQrZone={() => setManualSelectedZoneId(null)}
           />
         }
       />
@@ -379,7 +415,7 @@ function HomeContent() {
         onSelectProduct={(productId) => setSelectedProductId(productId)}
       />
       <div className="fixed bottom-0 left-0 right-0 z-20 flex justify-center">
-        <div className="w-full max-w-[min(100%-1.5rem,1440px)] px-4 pb-3 sm:px-6 lg:px-10">
+        <div className={`${customerOverlayShellClass} ${customerContentPadding}`}>
           <QuoteStickyBar
             totalQuantity={stickyQuantity}
             totalAmountLabel={stickyAmountLabel}
@@ -407,6 +443,7 @@ function HomeContent() {
         onAddToQuote={handleAddToQuote}
       />
     </div>
+    </div>
   );
 }
 
@@ -414,7 +451,9 @@ export default function Home() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto min-h-screen w-full max-w-[min(100%-1.5rem,1440px)] bg-white" />
+        <div className={customerPageOuterClass}>
+          <div className={customerShellClass} />
+        </div>
       }
     >
       <HomeContent />

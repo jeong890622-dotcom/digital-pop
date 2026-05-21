@@ -1,3 +1,11 @@
+import {
+  customerAttentionText,
+  customerBodyMedium,
+  customerCapsLabel,
+  customerContentPadding,
+  customerTextHoverUnderline,
+} from "../../_lib/deskerTokens";
+
 type QuoteExpiryNoticeProps = {
   message: string;
   onDismiss: () => void;
@@ -8,16 +16,16 @@ export function QuoteExpiryNotice({ message, onDismiss }: QuoteExpiryNoticeProps
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-[#E5E5E5] bg-[#F5F5F5] px-4 py-2.5 sm:px-6 lg:px-10"
+      className={`${customerContentPadding} min-h-10 bg-[#FFDEDA] py-2`}
     >
-      <div className="mx-auto flex max-w-[min(100%,1440px)] items-start justify-between gap-3">
-        <p className="min-w-0 flex-1 text-xs leading-relaxed text-[#111111]">{message}</p>
+      <div className="flex items-start justify-between gap-3 px-4 sm:px-6">
+        <p className={`min-w-0 flex-1 ${customerAttentionText}`}>{message}</p>
         <button
           type="button"
           onClick={onDismiss}
-          className="shrink-0 text-xs text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+          className={`shrink-0 ${customerCapsLabel} !text-[#FF5948] ${customerTextHoverUnderline}`}
         >
-          닫기
+          OK
         </button>
       </div>
     </div>

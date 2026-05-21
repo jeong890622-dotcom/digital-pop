@@ -1,15 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Figtree } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const figtree = Figtree({
+  variable: "--font-figtree",
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -20,12 +16,6 @@ export const metadata: Metadata = {
   },
 };
 
-/**
- * 모바일 / 브라우저의 시스템 다크모드 자동 반전을 막아
- * 디자인 가이드(화이트 배경)에 맞게 항상 라이트 모드로 표시한다.
- * - viewport.colorScheme 이 <meta name="color-scheme" content="light"> 를 생성
- * - globals.css 의 :root { color-scheme: light only } 가 CSS 레벨에서 강제
- */
 export const viewport: Viewport = {
   colorScheme: "light",
   themeColor: "#ffffff",
@@ -41,10 +31,10 @@ export default function RootLayout({
   return (
     <html
       lang="ko"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${figtree.variable} h-full antialiased`}
       style={{ colorScheme: "light" }}
     >
-      <body className="min-h-full flex flex-col bg-white text-[#111111]">
+      <body className="min-h-full flex flex-col bg-white font-sans text-[#282828] antialiased">
         {children}
       </body>
     </html>

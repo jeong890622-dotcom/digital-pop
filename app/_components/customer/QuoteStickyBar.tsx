@@ -1,3 +1,5 @@
+import { customerOnPrimaryText, customerPrimaryButton } from "../../_lib/deskerTokens";
+
 type QuoteStickyBarProps = {
   totalQuantity: number;
   totalAmountLabel: string;
@@ -12,14 +14,14 @@ export function QuoteStickyBar({
   onOpenQuote,
 }: QuoteStickyBarProps) {
   return (
-    <div className="border-t border-[#E5E5E5] bg-white pt-3">
+    <div className="w-full bg-[#282828]">
       <button
         type="button"
         onClick={onOpenQuote}
-        className="flex w-full items-center justify-between rounded-sm bg-[#111111] px-4 py-3 text-sm font-medium text-white"
+        className={`${customerPrimaryButton} w-full justify-between px-4 sm:px-5`}
       >
-        <span>견적서 보기</span>
-        <span className="text-xs font-normal opacity-90">
+        <span className={customerOnPrimaryText}>견적서 보기</span>
+        <span className={`tabular-nums ${customerOnPrimaryText}`}>
           {isEmpty ? "비어 있음 · 0원" : `${totalQuantity}개 · ${totalAmountLabel}`}
         </span>
       </button>
