@@ -348,7 +348,11 @@ function HomeContent() {
     setQuoteItems([]);
   };
 
-  if (qrStatus === "invalid" || qrStatus === "inactive" || isMissingRequestedQrZone) {
+  if (
+    qrStatus === "invalid" ||
+    qrStatus === "inactive" ||
+    (isMissingRequestedQrZone && !isCatalogLoading)
+  ) {
     const isInvalid = qrStatus === "invalid" || isMissingRequestedQrZone;
     const title = isInvalid
       ? "화면을 열 수 없습니다"
