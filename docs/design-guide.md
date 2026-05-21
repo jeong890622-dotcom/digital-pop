@@ -106,7 +106,7 @@
 ## 배지 (카드·CART)
 
 - NEW `#FFDC1E` · BEST `#336DFF` · PROMOTION `#F72B35` · 벽고정 `#FF5948` · 전시품 `#B3B3B3`
-- 순서: (1) NEW/BEST/PROMOTION 하나 (2) 벽 고정 (3) 전시품 판매
+- 순서: (1) NEW·BEST·PROMOTION(등록된 것 모두, NEW→BEST→PROMOTION) (2) 벽고정 필수 (3) 전시품 판매
 
 ## Underline (전역)
 

@@ -8,7 +8,7 @@ type EventKey = "bestProductCodes" | "wallRequiredProductCodes" | "newProductCod
 
 const EVENT_SECTIONS: Array<{ key: EventKey; title: string; helper: string }> = [
   { key: "bestProductCodes", title: "BEST 상품 등록하기", helper: "BEST 배지 노출 대상 제품코드" },
-  { key: "wallRequiredProductCodes", title: "벽고정 제품 등록하기", helper: "벽 고정 필요 배지 노출 대상 제품코드" },
+  { key: "wallRequiredProductCodes", title: "벽고정 제품 등록하기", helper: "벽고정 필수 배지 노출 대상 제품코드" },
   { key: "newProductCodes", title: "신제품 등록하기", helper: "NEW 배지 노출 대상 제품코드" },
 ];
 
@@ -64,7 +64,7 @@ export default function ProductEventsPage() {
         사용자 카드 가격 아래 배지를 제품코드 기준으로 등록/삭제합니다.
       </p>
       <p className="mt-1 text-xs text-[#888888]">
-        배지 표시 순서: 벽 고정 필요 &gt; NEW &gt; BEST
+        배지 표시 순서: NEW &gt; BEST (둘 다 등록 시 함께 노출) &gt; 벽고정 필수
       </p>
 
       <div className="mt-5 space-y-4">
