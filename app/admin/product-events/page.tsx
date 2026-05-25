@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useProductEventRules } from "../../_lib/productEventStore";
+import { useProductMasterRows } from "../../_lib/productMasterStore";
 import type { ProductEventRules } from "../../_types/productBadge";
 
 type EventKey = "bestProductCodes" | "wallRequiredProductCodes" | "newProductCodes";
@@ -14,12 +15,27 @@ const EVENT_SECTIONS: Array<{ key: EventKey; title: string; helper: string }> = 
 
 export default function ProductEventsPage() {
   const [rules, setRules] = useProductEventRules();
+  const [productMasterRows] = useProductMasterRows();
   const [draftByKey, setDraftByKey] = useState<Record<EventKey, string>>({
     bestProductCodes: "",
     wallRequiredProductCodes: "",
     newProductCodes: "",
   });
   const [message, setMessage] = useState<string | null>(null);
+
+  const productNameByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of productMasterRows) {
+      const codeKey = row.productCode.trim().toLowerCase();
+      if (!codeKey) continue;
+      const name = row.productName.trim();
+      if (!name) continue;
+      if (!map.has(codeKey)) {
+        map.set(codeKey, name);
+      }
+    }
+    return map;
+  }, [productMasterRows]);
 
   const normalizedRules = useMemo(
     () => ({
@@ -95,35 +111,45 @@ export default function ProductEventsPage() {
             </div>
 
             <div className="mt-3 overflow-x-auto rounded-sm border border-[#E5E5E5]">
-              <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[560px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
                     <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품코드</th>
+                    <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품명</th>
                     <th className="px-3 py-2 text-xs font-medium text-[#666666]">관리</th>
                   </tr>
                 </thead>
                 <tbody>
                   {normalizedRules[section.key].length === 0 ? (
                     <tr>
-                      <td colSpan={2} className="px-3 py-8 text-center text-xs text-[#888888]">
+                      <td colSpan={3} className="px-3 py-8 text-center text-xs text-[#888888]">
                         등록된 제품코드가 없습니다.
                       </td>
                     </tr>
                   ) : (
-                    normalizedRules[section.key].map((code) => (
-                      <tr key={code} className="border-b border-[#E5E5E5] last:border-b-0">
-                        <td className="px-3 py-2 text-sm text-[#111111]">{code}</td>
-                        <td className="px-3 py-2 text-xs">
-                          <button
-                            type="button"
-                            onClick={() => removeCode(section.key, code)}
-                            className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
-                          >
-                            삭제
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    normalizedRules[section.key].map((code) => {
+                      const productName =
+                        productNameByCode.get(code.trim().toLowerCase()) ?? "";
+                      return (
+                        <tr key={code} className="border-b border-[#E5E5E5] last:border-b-0">
+                          <td className="px-3 py-2 text-sm text-[#111111]">{code}</td>
+                          <td className="px-3 py-2 text-sm text-[#111111]">
+                            {productName || (
+                              <span className="text-[#B3B3B3]">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => removeCode(section.key, code)}
+                              className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+                            >
+                              삭제
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

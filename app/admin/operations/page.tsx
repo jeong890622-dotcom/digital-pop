@@ -54,16 +54,26 @@ function operationRowId(row: StoreOperationRow): string {
 
 type MerchRowActionsProps = {
   row: StoreOperationRow;
+  productName: string;
   onEdit: (row: StoreOperationRow) => void;
   onDelete: (row: StoreOperationRow) => void;
 };
 
-function MerchStaticTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) {
+function MerchProductNameCell({ productName }: { productName: string }) {
+  return (
+    <td className="px-3 py-2 text-sm text-[#111111]">
+      {productName ? productName : <span className="text-[#B3B3B3]">—</span>}
+    </td>
+  );
+}
+
+function MerchStaticTableRow({ row, productName, onEdit, onDelete }: MerchRowActionsProps) {
   return (
     <tr className="border-b border-[#E5E5E5] last:border-b-0 bg-white">
       <td className="w-10 px-3 py-2 text-center text-xs text-[#CCCCCC]">—</td>
       <td className="px-3 py-2 text-sm text-[#111111]">{row.zone}</td>
       <td className="px-3 py-2 text-sm text-[#111111]">{row.productCode}</td>
+      <MerchProductNameCell productName={productName} />
       <td className="px-3 py-2 text-sm text-[#111111]">{row.colorCode}</td>
       <td className="px-3 py-2 text-xs">
         <div className="flex items-center gap-3">
@@ -87,7 +97,7 @@ function MerchStaticTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) {
   );
 }
 
-function MerchSortableTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) {
+function MerchSortableTableRow({ row, productName, onEdit, onDelete }: MerchRowActionsProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: operationRowId(row),
   });
@@ -114,6 +124,7 @@ function MerchSortableTableRow({ row, onEdit, onDelete }: MerchRowActionsProps) 
       </td>
       <td className="px-3 py-2 text-sm text-[#111111]">{row.zone}</td>
       <td className="px-3 py-2 text-sm text-[#111111]">{row.productCode}</td>
+      <MerchProductNameCell productName={productName} />
       <td className="px-3 py-2 text-sm text-[#111111]">{row.colorCode}</td>
       <td className="px-3 py-2 text-xs">
         <div className="flex items-center gap-3">
@@ -226,6 +237,27 @@ export default function AdminOperationsPage() {
     }
     return m;
   }, [productMasterRows]);
+  const masterRowByCode = useMemo(() => {
+    const m = new Map<string, ProductMasterRow>();
+    for (const row of productMasterRows) {
+      const key = row.productCode.trim().toLowerCase();
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, row);
+    }
+    return m;
+  }, [productMasterRows]);
+  const lookupProductName = useCallback(
+    (productCode: string, colorCode: string): string => {
+      const codeKey = productCode.trim().toLowerCase();
+      const colorKey = colorCode.trim().toLowerCase();
+      if (!codeKey) return "";
+      const exact = masterRowByCodeColor.get(`${codeKey}|${colorKey}`);
+      if (exact?.productName) return exact.productName.trim();
+      const byCode = masterRowByCode.get(codeKey);
+      return byCode?.productName.trim() ?? "";
+    },
+    [masterRowByCode, masterRowByCodeColor],
+  );
   const [entryModalMode, setEntryModalMode] = useState<"create" | "edit" | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [zoneDraft, setZoneDraft] = useState("");
@@ -904,12 +936,13 @@ export default function AdminOperationsPage() {
                 </p>
               ) : null}
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleMerchDragEnd}>
-                <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+                <table className="w-full min-w-[680px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-[#E5E5E5] bg-[#F5F5F5]">
                       <th className="w-10 px-3 py-2 text-center text-xs font-medium text-[#666666]">순서</th>
                       <th className="px-3 py-2 text-xs font-medium text-[#666666]">ZONE</th>
                       <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품코드</th>
+                      <th className="px-3 py-2 text-xs font-medium text-[#666666]">제품명</th>
                       <th className="px-3 py-2 text-xs font-medium text-[#666666]">색상</th>
                       <th className="px-3 py-2 text-xs font-medium text-[#666666]">관리</th>
                     </tr>
@@ -917,7 +950,7 @@ export default function AdminOperationsPage() {
                   <tbody>
                     {visibleZoneRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-8 text-center text-xs text-[#888888]">
+                        <td colSpan={6} className="px-3 py-8 text-center text-xs text-[#888888]">
                           {zoneRows.length === 0
                             ? "등록된 편성 데이터가 없습니다."
                             : "선택한 조건에 맞는 데이터가 없습니다."}
@@ -928,6 +961,7 @@ export default function AdminOperationsPage() {
                         <MerchStaticTableRow
                           key={operationRowId(row)}
                           row={row}
+                          productName={lookupProductName(row.productCode, row.colorCode)}
                           onEdit={openEditEntryModal}
                           onDelete={deleteEntry}
                         />
@@ -941,6 +975,7 @@ export default function AdminOperationsPage() {
                           <MerchSortableTableRow
                             key={operationRowId(row)}
                             row={row}
+                            productName={lookupProductName(row.productCode, row.colorCode)}
                             onEdit={openEditEntryModal}
                             onDelete={deleteEntry}
                           />
