@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminAccountState } from "../../../_lib/adminAccountStore";
+import { toResetPassword } from "../../../_lib/adminPassword";
 import {
   approveAdminProfile,
   deleteAdminProfile,
   fetchAdminProfilesByRole,
   lockAdminProfile,
   rejectAdminProfile,
+  resetAdminProfilePassword,
   setAdminProfileSuper,
   unlockAdminProfile,
   type AdminProfileRow,
@@ -85,6 +87,25 @@ export default function MasterAccountManagePage() {
     runAction(id, "삭제", () => deleteAdminProfile(id));
   };
 
+  const resetPassword = (item: AdminProfileRow) => {
+    if (!isSuper) return;
+    if (item.id === sessionAccountId) {
+      setActionError("현재 로그인한 본인 계정은 비밀번호를 초기화할 수 없습니다.");
+      return;
+    }
+    const phone = item.phone?.trim() ?? "";
+    if (!phone) {
+      setActionError("핸드폰 번호가 등록된 계정만 비밀번호를 초기화할 수 있습니다.");
+      return;
+    }
+    const initialPassword = toResetPassword(phone);
+    const confirmed = window.confirm(
+      `${item.username} 계정 비밀번호를 "${initialPassword}"(으)로 초기화하시겠습니까?`,
+    );
+    if (!confirmed) return;
+    runAction(item.id, "비밀번호 초기화", () => resetAdminProfilePassword(item.id));
+  };
+
   return (
     <section>
       <h1 className="text-lg font-semibold text-[#111111]">마스터 관리자 계정 관리</h1>
@@ -93,7 +114,7 @@ export default function MasterAccountManagePage() {
       </p>
       {!isSuper ? (
         <p className="mt-2 text-xs text-[#888888]">
-          조회만 가능합니다. 총괄 관리자만 승인·거부·잠금·삭제할 수 있습니다.
+          조회만 가능합니다. 총괄 관리자만 승인·거부·잠금·비밀번호 초기화·삭제할 수 있습니다.
         </p>
       ) : null}
       {actionError ? (
@@ -250,6 +271,18 @@ export default function MasterAccountManagePage() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => resetPassword(item)}
+                            disabled={
+                              busyId === item.id ||
+                              item.id === sessionAccountId ||
+                              !item.phone?.trim()
+                            }
+                            className="text-xs text-[#111111] underline disabled:opacity-50"
+                          >
+                            비밀번호 초기화
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => removeAccount(item.id)}
                             disabled={busyId === item.id || item.id === sessionAccountId}
                             className="text-xs text-[#666666] underline disabled:opacity-50"
@@ -268,7 +301,8 @@ export default function MasterAccountManagePage() {
           </table>
         </div>
         <div className="border-t border-[#E5E5E5] px-4 py-3 text-[11px] text-[#888888]">
-          비밀번호 분실 시에는 “삭제” 후 재신청을 안내해 주세요. (현 단계에서는 비밀번호 초기화 기능을 제공하지 않습니다.)
+          총괄 관리자만 비밀번호 초기화가 가능합니다. 초기화 시 등록된 핸드폰 번호 뒤에 @가 붙은 값(예:
+          01012345678@)으로 설정됩니다.
         </div>
       </div>
     </section>

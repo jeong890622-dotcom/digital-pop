@@ -189,6 +189,4 @@ export function useAdminAccountState(): [
   return [snapshot, setState];
 }
 
-export function toResetPassword(phone: string): string {
-  return `${phone}@`;
-}
+export { toResetPassword } from "./adminPassword";

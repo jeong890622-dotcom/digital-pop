@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAdminAccountState } from "../../../_lib/adminAccountStore";
+import { toResetPassword } from "../../../_lib/adminPassword";
 import {
   approveAdminProfile,
   deleteAdminProfile,
@@ -9,6 +10,7 @@ import {
   fetchStores,
   lockAdminProfile,
   rejectAdminProfile,
+  resetAdminProfilePassword,
   unlockAdminProfile,
   type AdminProfileRow,
   type StoreRow,
@@ -24,6 +26,7 @@ export default function StoreAccountManagePage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const canManage = state.session?.role === "master";
+  const sessionAccountId = state.session?.accountId ?? null;
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -84,8 +87,32 @@ export default function StoreAccountManagePage() {
   };
   const unlock = (id: string) => runAction(id, "잠금 해제", () => unlockAdminProfile(id));
   const lock = (id: string) => runAction(id, "잠금", () => lockAdminProfile(id));
-  const removeAccount = (id: string) =>
+  const removeAccount = (id: string) => {
+    if (id === sessionAccountId) {
+      setActionError("현재 로그인한 본인 계정은 삭제할 수 없습니다.");
+      return;
+    }
     runAction(id, "삭제", () => deleteAdminProfile(id));
+  };
+
+  const resetPassword = (item: AdminProfileRow) => {
+    if (!canManage) return;
+    if (item.id === sessionAccountId) {
+      setActionError("현재 로그인한 본인 계정은 비밀번호를 초기화할 수 없습니다.");
+      return;
+    }
+    const phone = item.phone?.trim() ?? "";
+    if (!phone) {
+      setActionError("핸드폰 번호가 등록된 계정만 비밀번호를 초기화할 수 있습니다.");
+      return;
+    }
+    const initialPassword = toResetPassword(phone);
+    const confirmed = window.confirm(
+      `${item.username} 계정 비밀번호를 "${initialPassword}"(으)로 초기화하시겠습니까?`,
+    );
+    if (!confirmed) return;
+    runAction(item.id, "비밀번호 초기화", () => resetAdminProfilePassword(item.id));
+  };
 
   return (
     <section>
@@ -95,7 +122,7 @@ export default function StoreAccountManagePage() {
       </p>
       {!canManage ? (
         <p className="mt-2 text-xs text-[#888888]">
-          마스터 관리자 권한이 있어야 매장 계정을 관리할 수 있습니다.
+          마스터 관리자 권한이 있어야 매장 계정을 승인·잠금·비밀번호 초기화·삭제할 수 있습니다.
         </p>
       ) : null}
       {actionError ? (
@@ -246,8 +273,20 @@ export default function StoreAccountManagePage() {
                           )}
                           <button
                             type="button"
+                            onClick={() => resetPassword(item)}
+                            disabled={
+                              busyId === item.id ||
+                              item.id === sessionAccountId ||
+                              !item.phone?.trim()
+                            }
+                            className="text-xs text-[#111111] underline disabled:opacity-50"
+                          >
+                            비밀번호 초기화
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => removeAccount(item.id)}
-                            disabled={busyId === item.id}
+                            disabled={busyId === item.id || item.id === sessionAccountId}
                             className="text-xs text-[#666666] underline disabled:opacity-50"
                           >
                             삭제
@@ -264,7 +303,8 @@ export default function StoreAccountManagePage() {
           </table>
         </div>
         <div className="border-t border-[#E5E5E5] px-4 py-3 text-[11px] text-[#888888]">
-          비밀번호 분실 시에는 “삭제” 후 재신청을 안내해 주세요. (현 단계에서는 비밀번호 초기화 기능을 제공하지 않습니다.)
+          마스터 관리자만 비밀번호 초기화가 가능합니다. 초기화 시 등록된 핸드폰 번호 뒤에 @가 붙은 값(예:
+          01012345678@)으로 설정됩니다.
         </div>
       </div>
     </section>

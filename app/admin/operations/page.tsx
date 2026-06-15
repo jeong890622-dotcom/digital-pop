@@ -24,29 +24,38 @@ import { adminHref } from "../../_components/admin/adminHref";
 import { MOCK_STORE_ADMIN_STORE_ID } from "../../_data/adminNavigation";
 import type { ProductMasterRow } from "../../_data/mockProductMaster";
 import { sortMerchandisingRowsForDisplay } from "../../_data/mockProducts";
-import { toResetPassword, useAdminAccountState } from "../../_lib/adminAccountStore";
+import { useAdminAccountState } from "../../_lib/adminAccountStore";
+import { toResetPassword } from "../../_lib/adminPassword";
 import { useProductMasterRows } from "../../_lib/productMasterStore";
 import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 import { useStoreOperationRows, type StoreOperationRow } from "../../_lib/storeOperationStore";
+import {
+  ZONE_MERCH_COLUMNS,
+  parseZoneMerchUploadText,
+  planZoneMerchUpload,
+  zoneMerchUploadResultMessage,
+  type ZoneMerchUploadMode,
+  type ZoneMerchUploadSummary,
+} from "../../_lib/zoneMerchUpload";
 import {
   useStoreZoneQrs,
   type ZoneQrByStore,
   type ZoneQrEntry,
 } from "../../_lib/storeZoneQrStore";
-import { fetchStores, type StoreRow } from "../../_lib/supabaseAdmin";
+import {
+  deleteAdminProfile,
+  fetchAdminProfilesByRole,
+  fetchStores,
+  resetAdminProfilePassword,
+  unlockAdminProfile,
+  type AdminProfileRow,
+  type StoreRow,
+} from "../../_lib/supabaseAdmin";
 import { zoneIdFromLabel } from "../../_lib/zoneIdFromLabel";
 import type { AdminRole } from "../../_types/admin";
 
 type OperationTabId = "merchandising" | "qr" | "managers";
-type UploadSummary = {
-  successCount: number;
-  failCount: number;
-  createdCount: number;
-  updatedCount: number;
-};
 type ZoneRowSortOption = "zone-asc" | "zone-desc" | "product-asc" | "product-desc";
-
-const ZONE_MERCH_COLUMNS = ["ZONE", "제품코드", "색상"] as const;
 
 function operationRowId(row: StoreOperationRow): string {
   return `${row.zone}|${row.productCode}|${row.colorCode}`;
@@ -172,13 +181,6 @@ function tabTitle(tab: OperationTabId): string {
   return "존·구역 및 상품 편성";
 }
 
-function splitUploadLine(line: string): string[] {
-  if (line.includes("\t")) {
-    return line.split("\t").map((cell) => cell.trim());
-  }
-  return line.split(",").map((cell) => cell.trim());
-}
-
 function downloadTemplate(filename: string, columns: readonly string[]): void {
   const bom = "\uFEFF";
   const header = columns.join(",");
@@ -199,7 +201,8 @@ export default function AdminOperationsPage() {
   );
   const searchParams = useSearchParams();
   const role = useMemo(() => parseRole(searchParams.get("role")), [searchParams]);
-  const [adminState, setAdminState] = useAdminAccountState();
+  const [adminState] = useAdminAccountState();
+  const sessionAccountId = adminState.session?.accountId ?? null;
   const [stores, setStores] = useState<StoreRow[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -223,8 +226,9 @@ export default function AdminOperationsPage() {
   );
   const tab = useMemo(() => parseTab(searchParams.get("tab")), [searchParams]);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadMode, setUploadMode] = useState<ZoneMerchUploadMode>("append");
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
-  const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
+  const [uploadSummary, setUploadSummary] = useState<ZoneMerchUploadSummary | null>(null);
   const [savedRowsByStore, setSavedRowsByStore] = useStoreOperationRows();
   const [productMasterRows] = useProductMasterRows();
   const masterRowByCodeColor = useMemo(() => {
@@ -265,6 +269,9 @@ export default function AdminOperationsPage() {
   const [colorCodeDraft, setColorCodeDraft] = useState("");
   const [entryError, setEntryError] = useState<string | null>(null);
   const [deletePolicyMessage, setDeletePolicyMessage] = useState<string | null>(null);
+  const [storeManagerRows, setStoreManagerRows] = useState<AdminProfileRow[]>([]);
+  const [storeManagersLoading, setStoreManagersLoading] = useState(false);
+  const [storeManagerBusyId, setStoreManagerBusyId] = useState<string | null>(null);
   const [zoneQrByStore, setZoneQrByStore] = useStoreZoneQrs();
   const [qrMessage, setQrMessage] = useState<string | null>(null);
   const [editingQrZoneId, setEditingQrZoneId] = useState<string | null>(null);
@@ -288,8 +295,13 @@ export default function AdminOperationsPage() {
     [zoneRows],
   );
   const selectedStoreAccounts = useMemo(
-    () => adminState.storeAccounts.filter((account) => account.storeId === selectedStoreId),
-    [adminState.storeAccounts, selectedStoreId],
+    () =>
+      storeManagerRows.filter(
+        (account) =>
+          account.store_id === selectedStoreId &&
+          (account.status === "ACTIVE" || account.status === "LOCKED"),
+      ),
+    [storeManagerRows, selectedStoreId],
   );
   const canManageStoreAccounts = role === "master";
   const visibleZoneRows = useMemo(() => {
@@ -382,6 +394,18 @@ export default function AdminOperationsPage() {
   );
   const safeTab = tabs.some((t) => t.id === tab) ? tab : "merchandising";
 
+  const reloadStoreManagers = useCallback(async () => {
+    setStoreManagersLoading(true);
+    const data = await fetchAdminProfilesByRole("store");
+    setStoreManagerRows(data);
+    setStoreManagersLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (safeTab !== "managers") return;
+    void reloadStoreManagers();
+  }, [reloadStoreManagers, safeTab]);
+
   if (!isMounted) {
     return (
       <section>
@@ -395,6 +419,14 @@ export default function AdminOperationsPage() {
     );
   }
 
+  const masterKeysForUpload = useMemo(() => {
+    const keys = new Set<string>();
+    for (const row of productMasterRows) {
+      keys.add(`${row.productCode.trim().toLowerCase()}|${row.colorCode.trim().toLowerCase()}`);
+    }
+    return keys;
+  }, [productMasterRows]);
+
   const applyZoneMerchUpload = async () => {
     if (!uploadFile) {
       setUploadMessage("업로드할 파일을 선택해 주세요.");
@@ -402,74 +434,64 @@ export default function AdminOperationsPage() {
       return;
     }
     const text = await readUploadTextFile(uploadFile).catch(() => "");
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (lines.length === 0) {
+    if (!text.trim()) {
       setUploadMessage("파일 데이터가 비어 있습니다.");
       setUploadSummary(null);
       return;
     }
+    const { rows: parsedRows, failures, zonesAttempted } = parseZoneMerchUploadText(
+      text,
+      selectedStoreId,
+      masterKeysForUpload,
+    );
 
-    const firstCells = splitUploadLine(lines[0] ?? "");
-    const hasHeader = firstCells[0] === ZONE_MERCH_COLUMNS[0];
-    const bodyLines = hasHeader ? lines.slice(1) : lines;
-    if (bodyLines.length === 0) {
-      setUploadMessage("헤더를 제외한 데이터가 없습니다.");
-      setUploadSummary(null);
+    const planResult = planZoneMerchUpload({
+      mode: uploadMode,
+      storeId: selectedStoreId,
+      prevRows: savedRowsByStore[selectedStoreId] ?? [],
+      parsedRows,
+      zonesAttempted,
+    });
+
+    if (!planResult.ok) {
+      setUploadMessage(planResult.message);
+      setUploadSummary(
+        failures.length > 0
+          ? {
+              successCount: 0,
+              failCount: failures.length,
+              createdCount: 0,
+              updatedCount: 0,
+              skippedCount: 0,
+              deletedCount: 0,
+              replacedZones: [],
+              newZones: [],
+            }
+          : null,
+      );
       return;
     }
 
-    const parsed: StoreOperationRow[] = [];
-    let failCount = 0;
-    for (const line of bodyLines) {
-      const cells = splitUploadLine(line);
-      if (cells.length !== ZONE_MERCH_COLUMNS.length) {
-        failCount += 1;
-        continue;
-      }
-      const row: StoreOperationRow = {
-        storeId: selectedStoreId,
-        zone: (cells[0] ?? "").trim(),
-        productCode: (cells[1] ?? "").trim(),
-        colorCode: (cells[2] ?? "").trim(),
-        sortOrder: null,
-      };
-      if (!row.zone || !row.productCode || !row.colorCode) {
-        failCount += 1;
-        continue;
-      }
-      parsed.push(row);
+    const { plan } = planResult;
+    if (plan.confirmMessage && !window.confirm(plan.confirmMessage)) {
+      return;
     }
 
-    const prevRows = savedRowsByStore[selectedStoreId] ?? [];
-    const prevMap = new Map(prevRows.map((row) => [`${row.zone}|${row.productCode}|${row.colorCode}`, row]));
-    let createdCount = 0;
-    let updatedCount = 0;
-    const dedup = new Map<string, StoreOperationRow>();
-    for (const row of parsed) {
-      const key = `${row.zone}|${row.productCode}|${row.colorCode}`;
-      const prev = prevMap.get(key);
-      if (prevMap.has(key)) {
-        updatedCount += 1;
-      } else {
-        createdCount += 1;
-      }
-      dedup.set(key, {
-        ...row,
-        sortOrder: prev?.sortOrder ?? null,
-      });
-    }
-    const nextRows = [...dedup.values()];
-    setSavedRowsByStore({ ...savedRowsByStore, [selectedStoreId]: nextRows });
-    setUploadSummary({
-      successCount: nextRows.length,
-      failCount,
-      createdCount,
-      updatedCount,
+    const summary: ZoneMerchUploadSummary = {
+      ...plan.summary,
+      failCount: failures.length,
+    };
+
+    setSavedRowsByStore({
+      ...savedRowsByStore,
+      [selectedStoreId]: plan.nextRows,
     });
-    setUploadMessage("업로드 실행 완료. 자동 저장되었습니다.");
+    setUploadSummary(summary);
+    let message = `${zoneMerchUploadResultMessage(uploadMode, summary)} 자동 저장되었습니다.`;
+    if (summary.newZones.length > 0) {
+      message += ` 신규 ZONE ${summary.newZones.join(", ")} — QR 관리 탭에서 QR을 생성해 주세요.`;
+    }
+    setUploadMessage(message);
     setUploadFile(null);
   };
 
@@ -713,41 +735,62 @@ export default function AdminOperationsPage() {
     setQrMessage("이전 QR URL로 복원했습니다.");
   };
 
-  const resetStoreAccountPassword = (accountId: string) => {
+  const resetStoreAccountPassword = async (account: AdminProfileRow) => {
     if (!canManageStoreAccounts) return;
-    setAdminState({
-      ...adminState,
-      storeAccounts: adminState.storeAccounts.map((account) =>
-        account.id === accountId
-          ? { ...account, password: toResetPassword(account.phone), mustChangePassword: true }
-          : account,
-      ),
-    });
-    setQrMessage("비밀번호를 초기화했습니다.");
+    if (account.id === sessionAccountId) {
+      setQrMessage("현재 로그인한 본인 계정은 비밀번호를 초기화할 수 없습니다.");
+      return;
+    }
+    const phone = account.phone?.trim() ?? "";
+    if (!phone) {
+      setQrMessage("핸드폰 번호가 등록된 계정만 비밀번호를 초기화할 수 있습니다.");
+      return;
+    }
+    const initialPassword = toResetPassword(phone);
+    const confirmed = window.confirm(
+      `${account.username} 계정 비밀번호를 "${initialPassword}"(으)로 초기화하시겠습니까?`,
+    );
+    if (!confirmed) return;
+    setStoreManagerBusyId(account.id);
+    try {
+      const ok = await resetAdminProfilePassword(account.id);
+      setQrMessage(
+        ok ? "비밀번호를 초기화했습니다." : "비밀번호 초기화에 실패했습니다. 권한 또는 네트워크를 확인해 주세요.",
+      );
+      if (ok) await reloadStoreManagers();
+    } finally {
+      setStoreManagerBusyId(null);
+    }
   };
 
-  const unlockStoreAccount = (accountId: string) => {
+  const unlockStoreAccount = async (accountId: string) => {
     if (!canManageStoreAccounts) return;
-    setAdminState({
-      ...adminState,
-      storeAccounts: adminState.storeAccounts.map((account) =>
-        account.id === accountId
-          ? { ...account, status: "ACTIVE", failedCount: 0 }
-          : account,
-      ),
-    });
-    setQrMessage("잠금을 해제했습니다.");
+    setStoreManagerBusyId(accountId);
+    try {
+      const ok = await unlockAdminProfile(accountId);
+      setQrMessage(ok ? "잠금을 해제했습니다." : "잠금 해제에 실패했습니다.");
+      if (ok) await reloadStoreManagers();
+    } finally {
+      setStoreManagerBusyId(null);
+    }
   };
 
-  const removeStoreAccount = (accountId: string) => {
+  const removeStoreAccount = async (accountId: string) => {
     if (!canManageStoreAccounts) return;
+    if (accountId === sessionAccountId) {
+      setQrMessage("현재 로그인한 본인 계정은 삭제할 수 없습니다.");
+      return;
+    }
     const confirmed = window.confirm("해당 계정을 삭제하시겠습니까?");
     if (!confirmed) return;
-    setAdminState({
-      ...adminState,
-      storeAccounts: adminState.storeAccounts.filter((account) => account.id !== accountId),
-    });
-    setQrMessage("계정을 삭제했습니다.");
+    setStoreManagerBusyId(accountId);
+    try {
+      const ok = await deleteAdminProfile(accountId);
+      setQrMessage(ok ? "계정을 삭제했습니다." : "계정 삭제에 실패했습니다.");
+      if (ok) await reloadStoreManagers();
+    } finally {
+      setStoreManagerBusyId(null);
+    }
   };
 
   return (
@@ -854,15 +897,60 @@ export default function AdminOperationsPage() {
                   수동 등록
                 </button>
               </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[#666666]">
+                <span>업로드 방식</span>
+                <label className="inline-flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="zone-merch-upload-mode"
+                    checked={uploadMode === "overwrite"}
+                    onChange={() => setUploadMode("overwrite")}
+                  />
+                  일괄 (전체 덮어쓰기)
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="zone-merch-upload-mode"
+                    checked={uploadMode === "append"}
+                    onChange={() => setUploadMode("append")}
+                  />
+                  추가
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="zone-merch-upload-mode"
+                    checked={uploadMode === "modify"}
+                    onChange={() => setUploadMode("modify")}
+                  />
+                  수정 (존 단위 덮어쓰기)
+                </label>
+              </div>
               <p className="mt-3 text-xs text-[#666666]">
                 업로드 컬럼: ZONE, 제품코드, 색상
               </p>
               <p className="mt-1 text-xs text-[#666666]">
                 매장별 ZONE·제품코드·색상 편성 데이터는 사용자 화면에서 ZONE 선택 시 상품 마스터
-                정보를 조회하는 기준으로 사용됩니다. 동일 ZONE 내 노출 순서는 상품 마스터 카테고리 순이 기본이며,
-                ZONE을 하나만 선택하면 드래그로 수동 순서를 저장할 수 있습니다. CSV 재업로드 시 기존 행의 수동
-                순서는 유지됩니다.
+                정보를 조회하는 기준으로 사용됩니다. 상품 마스터에 없는 제품코드·색상은 행 단위로
+                거부됩니다. 동일 ZONE 내 노출 순서는 상품 마스터 카테고리 순이 기본이며, ZONE을
+                하나만 선택하면 드래그로 수동 순서를 저장할 수 있습니다.
               </p>
+              <details className="mt-2 text-xs text-[#666666]">
+                <summary className="cursor-pointer">업로드 방식 설명</summary>
+                <p className="mt-2">
+                  일괄 (전체 덮어쓰기): 파일 기준으로 매장 전체 편성을 교체합니다. 파일에 없는 ZONE·상품은
+                  삭제됩니다.
+                </p>
+                <p className="mt-1">
+                  추가: 기존 편성을 유지하고 파일의 ZONE·상품만 추가합니다. 동일 ZONE·제품코드·색상은
+                  건너뜁니다.
+                </p>
+                <p className="mt-1">
+                  수정 (존 단위 덮어쓰기): 파일에 포함된 ZONE만 교체하고 나머지 ZONE은 유지합니다. 각 ZONE은
+                  최소 1건의 상품이 필요합니다.
+                </p>
+              </details>
             </section>
 
             {uploadMessage ? (
@@ -870,10 +958,18 @@ export default function AdminOperationsPage() {
             ) : null}
             {uploadSummary ? (
               <div className="mt-2 rounded-sm border border-[#E5E5E5] bg-[#F5F5F5] px-3 py-2 text-xs text-[#666666]">
-                <p>성공 건수: {uploadSummary.successCount}</p>
+                <p>반영 건수: {uploadSummary.successCount}</p>
                 <p>실패 건수: {uploadSummary.failCount}</p>
-                <p>수정 건수: {uploadSummary.updatedCount}</p>
                 <p>신규 건수: {uploadSummary.createdCount}</p>
+                <p>수정 건수: {uploadSummary.updatedCount}</p>
+                <p>건너뜀(중복): {uploadSummary.skippedCount}</p>
+                <p>삭제 건수: {uploadSummary.deletedCount}</p>
+                {uploadSummary.replacedZones.length > 0 ? (
+                  <p>교체된 ZONE: {uploadSummary.replacedZones.join(", ")}</p>
+                ) : null}
+                {uploadSummary.newZones.length > 0 ? (
+                  <p>신규 ZONE: {uploadSummary.newZones.join(", ")}</p>
+                ) : null}
               </div>
             ) : null}
             {deletePolicyMessage ? (
@@ -1215,7 +1311,13 @@ export default function AdminOperationsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedStoreAccounts.length === 0 ? (
+                  {storeManagersLoading ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-8 text-center text-xs text-[#888888]">
+                        불러오는 중…
+                      </td>
+                    </tr>
+                  ) : selectedStoreAccounts.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-3 py-8 text-center text-xs text-[#888888]">
                         현재 매장에 등록된 매장 관리자 계정이 없습니다.
@@ -1224,31 +1326,43 @@ export default function AdminOperationsPage() {
                   ) : (
                     selectedStoreAccounts.map((account) => (
                       <tr key={account.id} className="border-b border-[#E5E5E5] last:border-b-0">
-                        <td className="px-3 py-2 text-sm text-[#111111]">{account.name}</td>
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.name ?? "-"}</td>
                         <td className="px-3 py-2 text-sm text-[#111111]">{account.username}</td>
-                        <td className="px-3 py-2 text-sm text-[#111111]">{account.phone}</td>
+                        <td className="px-3 py-2 text-sm text-[#111111]">{account.phone ?? "-"}</td>
                         <td className="px-3 py-2 text-sm text-[#111111]">{account.status}</td>
                         <td className="px-3 py-2 text-xs">
                           {canManageStoreAccounts ? (
                             <div className="flex items-center gap-3">
                               <button
                                 type="button"
-                                onClick={() => resetStoreAccountPassword(account.id)}
-                                className="text-[#111111] underline-offset-2 hover:underline"
+                                onClick={() => resetStoreAccountPassword(account)}
+                                disabled={
+                                  storeManagerBusyId === account.id ||
+                                  account.id === sessionAccountId ||
+                                  !account.phone?.trim()
+                                }
+                                className="text-[#111111] underline-offset-2 hover:underline disabled:opacity-50"
                               >
                                 비밀번호 초기화
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => unlockStoreAccount(account.id)}
-                                className="text-[#111111] underline-offset-2 hover:underline"
-                              >
-                                잠금 해제
-                              </button>
+                              {account.status === "LOCKED" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => unlockStoreAccount(account.id)}
+                                  disabled={storeManagerBusyId === account.id}
+                                  className="text-[#111111] underline-offset-2 hover:underline disabled:opacity-50"
+                                >
+                                  잠금 해제
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => removeStoreAccount(account.id)}
-                                className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline"
+                                disabled={
+                                  storeManagerBusyId === account.id ||
+                                  account.id === sessionAccountId
+                                }
+                                className="text-[#666666] underline-offset-2 hover:text-[#111111] hover:underline disabled:opacity-50"
                               >
                                 삭제
                               </button>

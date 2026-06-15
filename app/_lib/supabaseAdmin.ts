@@ -194,6 +194,36 @@ export async function deleteAdminProfile(id: string): Promise<boolean> {
 }
 
 /**
+ * 마스터 관리자가 다른 관리자 계정 비밀번호를 핸드폰번호@ 로 초기화합니다.
+ * - 마스터 계정: 총괄 마스터만 가능
+ * - 매장 관리자 계정: 마스터 관리자(총괄·일반) 가능
+ */
+export async function resetAdminProfilePassword(targetUserId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+  if (!session?.access_token) return false;
+
+  try {
+    const res = await fetch("/api/admin/reset-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ targetUserId }),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { ok?: boolean };
+    return body.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 회원가입(신청). Supabase Auth signUp 후 자동 발급된 세션을 즉시 종료하여
  * 승인 전 자동 로그인되지 않도록 합니다.
  *
