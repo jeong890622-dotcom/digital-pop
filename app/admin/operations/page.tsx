@@ -26,6 +26,7 @@ import type { ProductMasterRow } from "../../_data/mockProductMaster";
 import { sortMerchandisingRowsForDisplay } from "../../_data/mockProducts";
 import { useAdminAccountState } from "../../_lib/adminAccountStore";
 import { toResetPassword } from "../../_lib/adminPassword";
+import { downloadStoreQrZip } from "../../_lib/downloadStoreQrZip";
 import { useProductMasterRows } from "../../_lib/productMasterStore";
 import { readUploadTextFile } from "../../_lib/readUploadTextFile";
 import { useStoreOperationRows, type StoreOperationRow } from "../../_lib/storeOperationStore";
@@ -51,6 +52,7 @@ import {
   type AdminProfileRow,
   type StoreRow,
 } from "../../_lib/supabaseAdmin";
+import { getSupabaseClient } from "../../_lib/supabase";
 import { zoneIdFromLabel } from "../../_lib/zoneIdFromLabel";
 import type { AdminRole } from "../../_types/admin";
 
@@ -274,6 +276,7 @@ export default function AdminOperationsPage() {
   const [storeManagerBusyId, setStoreManagerBusyId] = useState<string | null>(null);
   const [zoneQrByStore, setZoneQrByStore] = useStoreZoneQrs();
   const [qrMessage, setQrMessage] = useState<string | null>(null);
+  const [qrZipDownloading, setQrZipDownloading] = useState<"png" | "svg" | null>(null);
   const [editingQrZoneId, setEditingQrZoneId] = useState<string | null>(null);
   const [qrUrlDraft, setQrUrlDraft] = useState("");
   const [zoneFilter, setZoneFilter] = useState("all");
@@ -304,6 +307,12 @@ export default function AdminOperationsPage() {
     [storeManagerRows, selectedStoreId],
   );
   const canManageStoreAccounts = role === "master";
+  const generatedQrEntries = useMemo(() => {
+    const byZoneId = zoneQrByStore[selectedStoreId] ?? {};
+    return registeredZones
+      .map((zone) => byZoneId[zoneIdFromLabel(zone)])
+      .filter((entry): entry is ZoneQrEntry => Boolean(entry));
+  }, [registeredZones, selectedStoreId, zoneQrByStore]);
   const visibleZoneRows = useMemo(() => {
     const filtered =
       zoneFilter === "all"
@@ -635,6 +644,45 @@ export default function AdminOperationsPage() {
       setQrMessage("QR URL을 복사했습니다.");
     } catch {
       setQrMessage("복사에 실패했습니다. URL을 직접 선택해 복사해 주세요.");
+    }
+  };
+
+  const downloadAllQrZip = async (format: "png" | "svg") => {
+    if (qrZipDownloading) return;
+    setQrZipDownloading(format);
+    setQrMessage(null);
+    try {
+      const client = getSupabaseClient();
+      const accessToken = client
+        ? (await client.auth.getSession()).data.session?.access_token ?? null
+        : null;
+      const result = await downloadStoreQrZip({
+        storeName: selectedStore?.name ?? selectedStoreId,
+        format,
+        registeredZones,
+        entriesByZoneId: zoneQrByStore[selectedStoreId] ?? {},
+        zoneIdFromLabel,
+        accessToken,
+      });
+      if (!result.ok) {
+        setQrMessage(result.message);
+        return;
+      }
+      const skipNote =
+        result.skippedZones.length > 0
+          ? ` (미생성/실패 ZONE ${result.skippedZones.length}개 제외: ${result.skippedZones.join(", ")})`
+          : "";
+      setQrMessage(
+        `${result.zipFilename} 다운로드를 시작했습니다. ${result.includedCount}개 포함${skipNote}`,
+      );
+    } catch {
+      setQrMessage(
+        format === "svg"
+          ? "SVG ZIP 다운로드에 실패했습니다."
+          : "PNG ZIP 다운로드에 실패했습니다.",
+      );
+    } finally {
+      setQrZipDownloading(null);
     }
   };
 
@@ -1151,6 +1199,32 @@ export default function AdminOperationsPage() {
               <p className="text-xs text-[#666666]">
                 QR 생성 대상은 현재 매장의 ZONE 편성 데이터입니다. ZONE이 먼저 등록되어 있어야
                 QR 생성이 가능합니다.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadAllQrZip("png")}
+                  disabled={generatedQrEntries.length === 0 || qrZipDownloading !== null}
+                  className="rounded-sm border border-[#E5E5E5] bg-white px-3 py-2 text-xs text-[#111111] hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {qrZipDownloading === "png" ? "PNG ZIP 준비 중…" : "전체 QR PNG ZIP"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadAllQrZip("svg")}
+                  disabled={generatedQrEntries.length === 0 || qrZipDownloading !== null}
+                  className="rounded-sm border border-[#E5E5E5] bg-white px-3 py-2 text-xs text-[#111111] hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {qrZipDownloading === "svg" ? "SVG ZIP 준비 중…" : "전체 QR SVG ZIP"}
+                </button>
+                <span className="text-xs text-[#888888]">
+                  {generatedQrEntries.length === 0
+                    ? "생성된 QR이 없으면 다운로드할 수 없습니다."
+                    : `생성된 QR ${generatedQrEntries.length}개 · ZIP 예: ${(selectedStore?.name ?? "매장").trim()}_QR코드_PNG.zip`}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-[#888888]">
+                ZIP 내부 파일명: 매장명_ZONE명.png / .svg (미생성 ZONE은 제외)
               </p>
             </section>
             {qrMessage ? (

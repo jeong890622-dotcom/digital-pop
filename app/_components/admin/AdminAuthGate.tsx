@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAdminAccountState, type AdminSession } from "../../_lib/adminAccountStore";
-import { getSupabaseClient } from "../../_lib/supabase";
+import { enableSupabaseAuthAutoRefresh, getSupabaseClient } from "../../_lib/supabase";
 import {
   fetchStores,
   signUpAdminApplicant,
@@ -213,6 +213,7 @@ export function AdminAuthGate() {
       }
 
       setState({ ...state, session: adminSessionFromProfile(profile) });
+      enableSupabaseAuthAutoRefresh(client);
       setMessage(null);
     } finally {
       setIsLoggingIn(false);

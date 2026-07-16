@@ -18,7 +18,7 @@ import {
   useAdminAccountState,
   type AdminSession,
 } from "../../_lib/adminAccountStore";
-import { getSupabaseClient } from "../../_lib/supabase";
+import { clearSupabaseAuthStorage, getSupabaseClient, recoverInvalidSupabaseSession } from "../../_lib/supabase";
 
 type AdminProfileRow = {
   id: string;
@@ -112,14 +112,22 @@ export function AdminAppShell({ children }: { children: React.ReactNode }) {
     if (!client) return;
     let cancelled = false;
     void (async () => {
+      // pause/resume 등으로 refresh token 이 사라진 경우 로컬 세션부터 정리
+      const recovered = await recoverInvalidSupabaseSession(client);
+      if (cancelled) return;
+      if (recovered && stateRef.current.session) {
+        setStateRef.current({ ...stateRef.current, session: null });
+      }
+
       const { data: userData, error: userError } = await client.auth.getUser();
       if (cancelled) return;
       const supaUser = userData?.user ?? null;
       const localSession = stateRef.current.session;
 
       if (userError || !supaUser) {
-        // 만료/무효한 옛 세션이면 깨끗이 정리하여 다음 fetch 호출이 anon 으로 정상 동작하게 함
-        await client.auth.signOut().catch(() => {});
+        // 만료/무효한 옛 세션·네트워크 실패면 깨끗이 정리
+        await client.auth.signOut({ scope: "local" }).catch(() => {});
+        clearSupabaseAuthStorage();
         if (localSession) {
           setStateRef.current({ ...stateRef.current, session: null });
         }
