@@ -31,7 +31,7 @@ export function ProductGrid({
 
   return (
     <section
-      className={`grid grid-cols-2 items-stretch gap-x-3 gap-y-8 pb-24 sm:grid-cols-3 sm:gap-x-4 sm:gap-y-10 lg:grid-cols-4 lg:gap-x-5 lg:gap-y-12 ${customerContentPadding}`}
+      className={`customer-product-grid grid grid-cols-2 items-stretch gap-x-3 gap-y-8 pb-24 sm:grid-cols-3 sm:gap-x-4 sm:gap-y-10 lg:grid-cols-4 lg:gap-x-5 lg:gap-y-12 ${customerContentPadding}`}
     >
       {products.map((product) => (
         <ProductCard

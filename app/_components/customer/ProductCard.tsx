@@ -29,13 +29,13 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
       aria-label={`${product.name} 상세 보기`}
     >
       <article className="flex h-full flex-col">
-        <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-[#F0F0F0]">
+        <div className="customer-product-card-image relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-[#F0F0F0]">
           <Image
             src={safeImageSrc}
             alt={product.name}
             fill
             className="object-contain object-top p-3 md:p-4"
-            sizes="(max-width: 767px) 45vw, 30vw"
+            sizes="(orientation: portrait) 30vw, (max-width: 767px) 45vw, (max-width: 1023px) 30vw, 22vw"
           />
         </div>
         <div className="flex flex-1 flex-col pt-2">

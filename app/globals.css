@@ -28,3 +28,36 @@ body {
   text-underline-offset: 14%;
   text-decoration-skip-ink: auto;
 }
+
+/**
+ * LG 스탠바이미 등 세로(portrait) 키오스크:
+ * 가로 폭이 lg 브레이크포인트를 넘어도 4열이 되면 카드가 과도하게 작아짐.
+ * 세로 방향에서는 3열로 고정해 제품 이미지(4:3) 비율이 맞게 보이도록 함.
+ */
+@media (orientation: portrait) {
+  .customer-product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    column-gap: 1rem !important;
+    row-gap: 2.5rem !important;
+  }
+
+  .customer-product-card-image {
+    aspect-ratio: 4 / 3;
+  }
+
+  .customer-product-card-image img {
+    padding: 1rem;
+  }
+}
+
+/* 세로 + 키가 큰 디스플레이(스탠바이미급 ~1080×1920)에서 카드 간격·이미지 여백 조금 더 여유 */
+@media (orientation: portrait) and (min-height: 1400px) {
+  .customer-product-grid {
+    column-gap: 1.25rem !important;
+    row-gap: 3rem !important;
+  }
+
+  .customer-product-card-image img {
+    padding: 1.25rem;
+  }
+}

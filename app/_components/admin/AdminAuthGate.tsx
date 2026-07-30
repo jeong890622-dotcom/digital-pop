@@ -180,6 +180,17 @@ export function AdminAuthGate() {
         password,
       });
       if (signInError || !signInData.user) {
+        const errMsg = (signInError?.message ?? "").toLowerCase();
+        if (
+          errMsg.includes("failed to fetch") ||
+          errMsg.includes("network") ||
+          errMsg.includes("fetch failed")
+        ) {
+          setMessage(
+            "로그인 서버(Supabase)에 연결할 수 없습니다. 프로젝트가 일시 중지(Paused)되었는지 대시보드에서 Resume project를 확인해 주세요.",
+          );
+          return;
+        }
         setMessage("로그인 정보가 올바르지 않습니다.");
         return;
       }
@@ -215,6 +226,19 @@ export function AdminAuthGate() {
       setState({ ...state, session: adminSessionFromProfile(profile) });
       enableSupabaseAuthAutoRefresh(client);
       setMessage(null);
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+      if (
+        msg.includes("failed to fetch") ||
+        msg.includes("network") ||
+        msg.includes("fetch failed")
+      ) {
+        setMessage(
+          "로그인 서버(Supabase)에 연결할 수 없습니다. 프로젝트가 일시 중지(Paused)되었는지 대시보드에서 Resume project를 확인해 주세요.",
+        );
+      } else {
+        setMessage("로그인 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      }
     } finally {
       setIsLoggingIn(false);
     }
