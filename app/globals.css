@@ -30,34 +30,116 @@ body {
 }
 
 /**
- * LG 스탠바이미 등 세로(portrait) 키오스크:
- * 가로 폭이 lg 브레이크포인트를 넘어도 4열이 되면 카드가 과도하게 작아짐.
- * 세로 방향에서는 3열로 고정해 제품 이미지(4:3) 비율이 맞게 보이도록 함.
+ * 상품 그리드: 기본도 열 폭이 콘텐츠에 밀리지 않도록 고정.
+ * (min-width:auto 기본값 때문에 긴 제품명·이미지가 열을 밀어내는 현상 방지)
  */
-@media (orientation: portrait) {
+.customer-product-grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.customer-product-card {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.customer-product-card-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+/**
+ * LG 스탠바이미 등 세로 키오스크:
+ * - orientation 뿐 아니라 화면 비율(max-aspect-ratio)로도 감지
+ *   (일부 기기가 세로 거치여도 CSS orientation 을 landscape 로 보고하는 경우 대비)
+ * - 3열 균등 고정
+ * - 이미지 박스 높이 통일(4:3)
+ * - 텍스트 영역 줄 수 고정으로 행 기준선 맞춤
+ */
+@media (orientation: portrait), (max-aspect-ratio: 3 / 4) {
   .customer-product-grid {
+    display: grid !important;
     grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    column-gap: 0.75rem !important;
+    row-gap: 2rem !important;
+    align-items: stretch !important;
+  }
+
+  .customer-product-grid > * {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* 세로 긴 제품(책장 등)도 텍스트와 같은 왼쪽 기준으로 맞춤 */
+  .customer-product-card-image img {
+    object-position: left top !important;
+    padding: 0.75rem !important;
+  }
+
+  .customer-product-card-body {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .customer-product-card-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    min-height: calc(1.4em * 2);
+  }
+
+  .customer-product-card-size {
+    min-height: 1.4em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .customer-product-card-price {
+    min-height: 1.4em;
+  }
+
+  .customer-product-card-badges {
+    min-height: 1.75rem;
+  }
+}
+
+@media ((orientation: portrait) and (min-height: 1400px)),
+  ((max-aspect-ratio: 3 / 4) and (min-height: 1400px)) {
+  .customer-product-grid {
     column-gap: 1rem !important;
     row-gap: 2.5rem !important;
   }
 
-  .customer-product-card-image {
-    aspect-ratio: 4 / 3;
-  }
-
   .customer-product-card-image img {
-    padding: 1rem;
+    padding: 1rem !important;
   }
 }
 
-/* 세로 + 키가 큰 디스플레이(스탠바이미급 ~1080×1920)에서 카드 간격·이미지 여백 조금 더 여유 */
-@media (orientation: portrait) and (min-height: 1400px) {
-  .customer-product-grid {
-    column-gap: 1.25rem !important;
-    row-gap: 3rem !important;
+/* aspect-ratio 미지원 WebView 대비 */
+@supports not (aspect-ratio: 4 / 3) {
+  .customer-product-card-image {
+    height: 0;
+    padding-bottom: 75%;
   }
 
-  .customer-product-card-image img {
-    padding: 1.25rem;
+  .customer-product-card-image > span,
+  .customer-product-card-image > img {
+    position: absolute !important;
+    inset: 0 !important;
+    height: 100% !important;
+    width: 100% !important;
   }
 }
