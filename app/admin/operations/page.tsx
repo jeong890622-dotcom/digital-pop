@@ -53,6 +53,7 @@ import {
   type StoreRow,
 } from "../../_lib/supabaseAdmin";
 import { getSupabaseClient } from "../../_lib/supabase";
+import { buildCustomerQrUrl } from "../../_lib/customerQrOrigin";
 import { zoneIdFromLabel } from "../../_lib/zoneIdFromLabel";
 import type { AdminRole } from "../../_types/admin";
 
@@ -610,11 +611,11 @@ export default function AdminOperationsPage() {
   const createQrForZone = (zone: string) => {
     const zoneId = zoneIdFromLabel(zone);
     const qrId = `qr-${selectedStoreId}-${zoneId}`;
-    const baseUrl =
-      typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-    const qrUrl = `${baseUrl}/?qrId=${encodeURIComponent(qrId)}&storeId=${encodeURIComponent(
-      selectedStoreId,
-    )}&zoneId=${encodeURIComponent(zoneId)}&areaId=${encodeURIComponent(zoneId)}`;
+    const qrUrl = buildCustomerQrUrl({
+      qrId,
+      storeId: selectedStoreId,
+      zoneId,
+    });
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
       qrUrl,
     )}`;
