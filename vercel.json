@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/catalog",
+      "destination": "https://desker-digital-pop.app1.hub.fursys.com/api/catalog"
+    }
+  ]
+}

@@ -4,6 +4,8 @@ import type { StoreOperationRowsByStore } from "./storeOperationStore";
 import type { ProductGroupOptionRule } from "../_types/productGroupOption";
 import type { ProductEventRules } from "../_types/productBadge";
 
+const HUB_CATALOG_URL = "https://desker-digital-pop.app1.hub.fursys.com/api/catalog";
+
 export type CustomerCatalogPayload = {
   ok: boolean;
   stores: StoreRow[];
@@ -13,8 +15,8 @@ export type CustomerCatalogPayload = {
   eventRules: ProductEventRules;
 };
 
-export async function fetchCustomerCatalog(): Promise<CustomerCatalogPayload | null> {
-  const response = await fetch("/api/catalog", { cache: "no-store" }).catch(() => null);
+async function fetchCatalogFrom(url: string): Promise<CustomerCatalogPayload | null> {
+  const response = await fetch(url, { cache: "no-store" }).catch(() => null);
   if (!response?.ok) return null;
   const body = (await response.json().catch(() => null)) as CustomerCatalogPayload | null;
   if (!body || body.ok !== true) return null;
@@ -22,4 +24,8 @@ export async function fetchCustomerCatalog(): Promise<CustomerCatalogPayload | n
     return null;
   }
   return body;
+}
+
+export async function fetchCustomerCatalog(): Promise<CustomerCatalogPayload | null> {
+  return (await fetchCatalogFrom("/api/catalog")) ?? (await fetchCatalogFrom(HUB_CATALOG_URL));
 }

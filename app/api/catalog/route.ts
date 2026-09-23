@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+export const dynamic = "force-dynamic";
+
 const HUB_CATALOG_URL = "https://desker-digital-pop.app1.hub.fursys.com/api/catalog";
 const FETCH_PAGE_SIZE = 1000;
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function withCors(response: NextResponse): NextResponse {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    response.headers.set(key, value);
+  }
+  return response;
+}
 
 function resolveUpstream(request: Request): string | null {
   const explicit = (process.env.CATALOG_UPSTREAM_URL ?? "").trim();
@@ -21,19 +35,23 @@ function resolveUpstream(request: Request): string | null {
 async function proxyUpstream(upstreamUrl: string): Promise<NextResponse> {
   const upstream = await fetch(upstreamUrl, { cache: "no-store" }).catch(() => null);
   if (!upstream?.ok) {
-    return NextResponse.json(
-      { ok: false, message: "운영 상품 목록을 불러오지 못했습니다." },
-      { status: 502 },
+    return withCors(
+      NextResponse.json(
+        { ok: false, message: "운영 상품 목록을 불러오지 못했습니다." },
+        { status: 502 },
+      ),
     );
   }
   const body = await upstream.arrayBuffer();
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
-      "Cache-Control": "no-store",
-    },
-  });
+  return withCors(
+    new NextResponse(body, {
+      status: 200,
+      headers: {
+        "Content-Type": upstream.headers.get("Content-Type") ?? "application/json",
+        "Cache-Control": "no-store",
+      },
+    }),
+  );
 }
 
 type ProductMasterDbRow = {
@@ -80,7 +98,9 @@ async function buildLocalCatalog(): Promise<NextResponse> {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").trim();
   const key = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
   if (!url || !key) {
-    return NextResponse.json({ ok: false, message: "상품 데이터에 연결할 수 없습니다." }, { status: 503 });
+    return withCors(
+      NextResponse.json({ ok: false, message: "상품 데이터에 연결할 수 없습니다." }, { status: 503 }),
+    );
   }
   const client = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -202,20 +222,26 @@ async function buildLocalCatalog(): Promise<NextResponse> {
     else if (kind === "display-sale") displaySaleProductCodes.push(code);
   }
 
-  return NextResponse.json({
-    ok: true,
-    stores: storeRows ?? [],
-    productMaster,
-    merchandising,
-    groupOptions,
-    eventRules: {
-      wallRequiredProductCodes: [...new Set(wallRequiredProductCodes)],
-      newProductCodes: [...new Set(newProductCodes)],
-      bestProductCodes: [...new Set(bestProductCodes)],
-      promotionProductCodes: [...new Set(promotionProductCodes)],
-      displaySaleProductCodes: [...new Set(displaySaleProductCodes)],
-    },
-  });
+  return withCors(
+    NextResponse.json({
+      ok: true,
+      stores: storeRows ?? [],
+      productMaster,
+      merchandising,
+      groupOptions,
+      eventRules: {
+        wallRequiredProductCodes: [...new Set(wallRequiredProductCodes)],
+        newProductCodes: [...new Set(newProductCodes)],
+        bestProductCodes: [...new Set(bestProductCodes)],
+        promotionProductCodes: [...new Set(promotionProductCodes)],
+        displaySaleProductCodes: [...new Set(displaySaleProductCodes)],
+      },
+    }),
+  );
+}
+
+export function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
 export async function GET(request: Request) {
