@@ -54,6 +54,14 @@ async function proxyUpstream(upstreamUrl: string): Promise<NextResponse> {
   );
 }
 
+type PagedQuery = {
+  order: (column: string, options: { ascending: boolean }) => PagedQuery;
+  range: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>;
+};
+
 type ProductMasterDbRow = {
   id: string;
   category?: string | null;
@@ -70,7 +78,7 @@ type ProductMasterDbRow = {
 };
 
 async function fetchPaged(
-  client: ReturnType<typeof createClient>,
+  client: { from: (table: string) => { select: (columns: string) => PagedQuery } },
   table: string,
   columns: string,
   orderCols: string[],
@@ -79,7 +87,7 @@ async function fetchPaged(
   let from = 0;
   while (true) {
     const to = from + FETCH_PAGE_SIZE - 1;
-    let query = client.from(table).select(columns);
+    let query: PagedQuery = client.from(table).select(columns);
     for (const col of orderCols) {
       query = query.order(col, { ascending: true });
     }
