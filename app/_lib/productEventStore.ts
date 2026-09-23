@@ -6,6 +6,7 @@ import {
   fetchProductEventRules,
   replaceProductEventRules,
 } from "./supabaseProductGroups";
+import { isCustomerCatalogApiEnabled } from "./customerCatalogSource";
 
 const DEFAULT_RULES: ProductEventRules = {
   wallRequiredProductCodes: [],
@@ -40,9 +41,10 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
-function hydrate(): void {
+function hydrate(forceSupabase = false): void {
   if (hydrated || hydrationInFlight) return;
   if (typeof window === "undefined") return;
+  if (!forceSupabase && isCustomerCatalogApiEnabled()) return;
   hydrationInFlight = (async () => {
     try {
       const remote = await fetchProductEventRules();
@@ -69,6 +71,18 @@ export function subscribeProductEventRules(listener: () => void): () => void {
 
 export function getProductEventRulesLastSyncError(): string | null {
   return lastSyncError;
+}
+
+/** 고객 /api/catalog 응답으로만 채운다. Supabase 저장은 하지 않는다. */
+export function applyHydratedProductEventRules(next: ProductEventRules): void {
+  state = normalizeRules(next);
+  hydrated = true;
+  hydrationInFlight = null;
+  notify();
+}
+
+export function beginSupabaseProductEventHydration(): void {
+  hydrate(true);
 }
 
 export async function reloadProductEventRules(): Promise<void> {

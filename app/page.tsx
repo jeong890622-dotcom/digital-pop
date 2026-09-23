@@ -14,9 +14,29 @@ import { StoreHeader } from "./_components/customer/StoreHeader";
 import { ALL_ZONE_VALUE, ZoneFilterSelect } from "./_components/customer/ZoneFilterSelect";
 import { buildStoreCatalogFromProductMasterRows } from "./_data/mockProducts";
 import { formatPrice } from "./_lib/formatPrice";
-import { useProductGroupOptionRules } from "./_lib/productGroupOptionStore";
-import { useProductMasterHydrated, useProductMasterRows } from "./_lib/productMasterStore";
-import { useStoreOperationHydrated, useStoreOperationRows } from "./_lib/storeOperationStore";
+import { fetchCustomerCatalog } from "./_lib/customerCatalogApi";
+import { enableCustomerCatalogApi } from "./_lib/customerCatalogSource";
+import {
+  applyHydratedProductGroupOptionRules,
+  beginSupabaseProductGroupOptionHydration,
+  useProductGroupOptionRules,
+} from "./_lib/productGroupOptionStore";
+import {
+  applyHydratedProductMasterRows,
+  beginSupabaseProductMasterHydration,
+  useProductMasterHydrated,
+  useProductMasterRows,
+} from "./_lib/productMasterStore";
+import {
+  applyHydratedStoreOperationRows,
+  beginSupabaseStoreOperationHydration,
+  useStoreOperationHydrated,
+  useStoreOperationRows,
+} from "./_lib/storeOperationStore";
+import {
+  applyHydratedProductEventRules,
+  beginSupabaseProductEventHydration,
+} from "./_lib/productEventStore";
 import { fetchStores, type StoreRow } from "./_lib/supabaseAdmin";
 import { filterProductsByZone, searchProductsInStore } from "./_lib/productFilters";
 import {
@@ -50,6 +70,16 @@ import {
 const QUOTE_EXPIRY_NOTICE =
   "견적 보관 시간이 만료되어 장바구니가 초기화되었습니다.";
 
+enableCustomerCatalogApi();
+
+function fallbackCustomerCatalogFromSupabase(onStores: (list: StoreRow[]) => void): void {
+  beginSupabaseProductMasterHydration();
+  beginSupabaseStoreOperationHydration();
+  beginSupabaseProductGroupOptionHydration();
+  beginSupabaseProductEventHydration();
+  void fetchStores().then(onStores);
+}
+
 function HomeContent() {
   const searchParams = useSearchParams();
   const qrIdParam = searchParams.get("qrId");
@@ -66,8 +96,27 @@ function HomeContent() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const list = await fetchStores();
-      if (!cancelled) setStores(list);
+      const payload = await fetchCustomerCatalog();
+      if (cancelled) return;
+      if (!payload) {
+        fallbackCustomerCatalogFromSupabase((list) => {
+          if (!cancelled) setStores(list);
+        });
+        return;
+      }
+      applyHydratedProductMasterRows(payload.productMaster);
+      applyHydratedStoreOperationRows(payload.merchandising);
+      applyHydratedProductGroupOptionRules(payload.groupOptions ?? []);
+      applyHydratedProductEventRules(
+        payload.eventRules ?? {
+          wallRequiredProductCodes: [],
+          newProductCodes: [],
+          bestProductCodes: [],
+          promotionProductCodes: [],
+          displaySaleProductCodes: [],
+        },
+      );
+      setStores(Array.isArray(payload.stores) ? payload.stores : []);
     })();
     return () => {
       cancelled = true;

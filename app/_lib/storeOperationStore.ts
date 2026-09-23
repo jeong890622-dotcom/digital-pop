@@ -5,6 +5,7 @@ import {
   fetchAllStoreMerchandising,
   replaceAllStoreMerchandising,
 } from "./supabaseStoreOperations";
+import { isCustomerCatalogApiEnabled } from "./customerCatalogSource";
 
 export type StoreOperationRow = {
   storeId: string;
@@ -57,9 +58,10 @@ function notify(): void {
   }
 }
 
-function hydrate(): void {
+function hydrate(forceSupabase = false): void {
   if (hydrated || hydrationInFlight) return;
   if (typeof window === "undefined") return;
+  if (!forceSupabase && isCustomerCatalogApiEnabled()) return;
   hydrationInFlight = (async () => {
     try {
       const remote = await fetchAllStoreMerchandising();
@@ -88,6 +90,18 @@ export function subscribeStoreOperationRows(listener: () => void): () => void {
 
 export function getStoreOperationRowsLastSyncError(): string | null {
   return lastSyncError;
+}
+
+/** 고객 /api/catalog 응답으로만 채운다. Supabase 저장은 하지 않는다. */
+export function applyHydratedStoreOperationRows(rowsByStore: StoreOperationRowsByStore): void {
+  rowsByStoreState = normalizeRowsByStore(rowsByStore);
+  hydrated = true;
+  hydrationInFlight = null;
+  notify();
+}
+
+export function beginSupabaseStoreOperationHydration(): void {
+  hydrate(true);
 }
 
 export async function reloadStoreOperationRows(): Promise<void> {

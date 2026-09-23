@@ -6,6 +6,7 @@ import {
   fetchAllProductMaster,
   replaceAllProductMaster,
 } from "./supabaseProducts";
+import { isCustomerCatalogApiEnabled } from "./customerCatalogSource";
 
 /**
  * useSyncExternalStore 의 getServerSnapshot 이 매 호출마다 같은 참조를
@@ -50,9 +51,10 @@ function notify(): void {
   }
 }
 
-function hydrate(): void {
+function hydrate(forceSupabase = false): void {
   if (hydrated || hydrationInFlight) return;
   if (typeof window === "undefined") return;
+  if (!forceSupabase && isCustomerCatalogApiEnabled()) return;
   hydrationInFlight = (async () => {
     try {
       const remote = await fetchAllProductMaster();
@@ -81,6 +83,18 @@ export function subscribeProductMasterRows(listener: () => void): () => void {
 
 export function getProductMasterLastSyncError(): string | null {
   return lastSyncError;
+}
+
+/** 고객 /api/catalog 응답으로만 채운다. Supabase 저장은 하지 않는다. */
+export function applyHydratedProductMasterRows(rows: ProductMasterRow[]): void {
+  rowsState = normalizeRows(rows);
+  hydrated = true;
+  hydrationInFlight = null;
+  notify();
+}
+
+export function beginSupabaseProductMasterHydration(): void {
+  hydrate(true);
 }
 
 export async function reloadProductMasterRows(): Promise<void> {
