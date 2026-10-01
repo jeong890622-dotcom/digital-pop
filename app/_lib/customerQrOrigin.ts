@@ -1,5 +1,5 @@
-/** 고객 화면·인쇄 QR의 고정 도메인. 운영 허브 origin과 분리한다. */
-export const CUSTOMER_QR_ORIGIN = "https://digital-pop.vercel.app";
+/** 신규 QR은 운영 허브 고객 화면으로 연다. 이미 생성된 Vercel QR은 그대로 둔다. */
+export const CUSTOMER_QR_ORIGIN = "https://desker-digital-pop.app1.hub.fursys.com";
 
 export function buildCustomerQrUrl(params: {
   qrId: string;
