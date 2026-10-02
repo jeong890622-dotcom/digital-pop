@@ -608,7 +608,7 @@ export default function AdminOperationsPage() {
     });
   };
 
-  const createQrForZone = (zone: string) => {
+  const buildZoneQrEntry = (zone: string): ZoneQrEntry => {
     const zoneId = zoneIdFromLabel(zone);
     const qrId = `qr-${selectedStoreId}-${zoneId}`;
     const qrUrl = buildCustomerQrUrl({
@@ -616,27 +616,51 @@ export default function AdminOperationsPage() {
       storeId: selectedStoreId,
       zoneId,
     });
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
-      qrUrl,
-    )}`;
-    const entry: ZoneQrEntry = {
+    return {
       storeId: selectedStoreId,
       zone,
       zoneId,
       qrId,
       qrUrl,
-      qrImageUrl,
+      qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(
+        qrUrl,
+      )}`,
       generatedAt: new Date().toISOString(),
       qrUrlHistory: [],
     };
+  };
+
+  const createQrForZone = (zone: string) => {
+    const entry = buildZoneQrEntry(zone);
     setZoneQrByStore((prev) => ({
       ...prev,
       [selectedStoreId]: {
         ...(prev[selectedStoreId] ?? {}),
-        [zoneId]: entry,
+        [entry.zoneId]: entry,
       },
     }));
     setQrMessage(`ZONE ${zone}의 QR을 생성했습니다.`);
+  };
+
+  const regenerateAllQrsForCurrentStore = () => {
+    if (registeredZones.length === 0) return;
+    const storeLabel = (selectedStore?.name ?? "현재 매장").trim() || "현재 매장";
+    const confirmed = window.confirm(
+      `${storeLabel}의 QR만 다시 만듭니다.\n존·구역 및 상품 편성과 다른 매장 QR은 그대로입니다.`,
+    );
+    if (!confirmed) return;
+    setZoneQrByStore((prev) => {
+      const nextForStore = { ...(prev[selectedStoreId] ?? {}) };
+      for (const zone of registeredZones) {
+        const entry = buildZoneQrEntry(zone);
+        nextForStore[entry.zoneId] = entry;
+      }
+      return {
+        ...prev,
+        [selectedStoreId]: nextForStore,
+      };
+    });
+    setQrMessage(`${storeLabel} ZONE ${registeredZones.length}개의 QR을 다시 생성했습니다.`);
   };
 
   const copyQrUrl = async (url: string) => {
@@ -1204,6 +1228,14 @@ export default function AdminOperationsPage() {
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={regenerateAllQrsForCurrentStore}
+                  disabled={registeredZones.length === 0}
+                  className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  이 매장 QR 모두 재생성
+                </button>
+                <button
+                  type="button"
                   onClick={() => downloadAllQrZip("png")}
                   disabled={generatedQrEntries.length === 0 || qrZipDownloading !== null}
                   className="rounded-sm border border-[#E5E5E5] bg-white px-3 py-2 text-xs text-[#111111] hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
@@ -1354,7 +1386,7 @@ export default function AdminOperationsPage() {
                               disabled={!zone}
                               className="rounded-sm bg-[#111111] px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                             >
-                              {existingEntry ? "생성 완료" : "QR 생성"}
+                              {existingEntry ? "재생성" : "QR 생성"}
                             </button>
                           </td>
                         </tr>
