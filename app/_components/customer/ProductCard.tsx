@@ -35,6 +35,7 @@ export function ProductCard({ product, onSelect }: ProductCardProps) {
             src={safeImageSrc}
             alt={product.name}
             fill
+            unoptimized={safeImageSrc.startsWith("http")}
             className="object-contain object-left object-top p-3 md:p-4"
             sizes="(orientation: portrait) 30vw, (max-width: 767px) 45vw, (max-width: 1023px) 30vw, 22vw"
           />

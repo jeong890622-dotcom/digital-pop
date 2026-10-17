@@ -389,6 +389,7 @@ export function ProductDetailSheet({
                     src={safeSelectedImageUrl}
                     alt={product.groupName}
                     fill
+                    unoptimized={safeSelectedImageUrl.startsWith("http")}
                     className="object-contain object-center"
                     sizes="(max-width: 1023px) 100vw, 40vw"
                   />
