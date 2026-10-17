@@ -1,6 +1,7 @@
 import Image from "next/image";
 import type { Product } from "../../_data/mockProducts";
 import { customerBodyMedium, customerBodyText, customerCardTitleHover } from "../../_lib/deskerTokens";
+import { toCustomerImageUrl } from "../../_lib/customerImageUrl";
 import { formatPrice } from "../../_lib/formatPrice";
 import { stripSizeMillimeterSuffix } from "../../_lib/formatSizeLabel";
 import { resolveProductBadges } from "../../_lib/productBadges";
@@ -15,7 +16,7 @@ type ProductCardProps = {
 export function ProductCard({ product, onSelect }: ProductCardProps) {
   const [rules] = useProductEventRules();
   const badges = resolveProductBadges(product.code, rules);
-  const safeImageSrc = !product.imageUrl.trim() ? "/window.svg" : product.imageUrl;
+  const safeImageSrc = !product.imageUrl.trim() ? "/window.svg" : toCustomerImageUrl(product.imageUrl);
   const sizeDisplay = stripSizeMillimeterSuffix(product.size);
   const normalizedSize = sizeDisplay.replace(/\s+/g, "");
   const showSizeLine =

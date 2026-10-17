@@ -1,4 +1,5 @@
 import { sortSizeOptionsByPrimaryNumber, type Product } from "../_data/mockProducts";
+import { toCustomerImageUrl } from "./customerImageUrl";
 import type { ProductMasterRow } from "../_data/mockProductMaster";
 import type { ProductDetailSelection, ProductOption } from "../_types/productDetail";
 import type { ProductGroupOptionRule } from "../_types/productGroupOption";
@@ -289,16 +290,16 @@ export function getSelectedColorImageUrl(
   const selectedProductCode = getSelectedProductCode(product, sizeId).toLowerCase();
   const selectedColorCode = (colorId || product.initialColorCode || "").toLowerCase();
   if (!selectedProductCode || !selectedColorCode) {
-    return product.imageUrl;
+    return toCustomerImageUrl(product.imageUrl);
   }
 
   const matched = product.skuImageMap[`${selectedProductCode}|${selectedColorCode}`];
   if (matched) {
-    return matched;
+    return toCustomerImageUrl(matched);
   }
 
   const selectedColor = product.colors.find((color) => color.id.toLowerCase() === selectedColorCode);
-  return selectedColor?.imageUrl ?? product.imageUrl;
+  return toCustomerImageUrl(selectedColor?.imageUrl ?? product.imageUrl);
 }
 
 export function getLineTotal(price: number, quantity: number): number {

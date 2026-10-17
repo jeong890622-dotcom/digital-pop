@@ -6,6 +6,7 @@ import {
   fetchAllProductMaster,
   replaceAllProductMaster,
 } from "./supabaseProducts";
+import { toCustomerImageUrl } from "./customerImageUrl";
 import { isCustomerCatalogApiEnabled } from "./customerCatalogSource";
 
 /**
@@ -40,7 +41,7 @@ function normalizeRows(rows: ProductMasterRow[]): ProductMasterRow[] {
       ...row,
       category: typeof row.category === "string" ? row.category.trim() : "",
       consumerPrice,
-      imageUrl: isRenderableImageUrl(row.imageUrl) ? row.imageUrl : "/window.svg",
+      imageUrl: isRenderableImageUrl(row.imageUrl) ? toCustomerImageUrl(row.imageUrl) : "/window.svg",
     };
   });
 }
